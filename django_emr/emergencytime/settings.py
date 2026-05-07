@@ -130,6 +130,8 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+# Required for `collectstatic` on the server (served by nginx or a CDN in production).
+STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "accounts.User"
