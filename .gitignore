@@ -19,3 +19,12 @@ yarn-error.log
 /.idea
 /.vscode
 /.zed
+
+# Local secrets / large generated artifacts — do not commit
+Password.txt
+graphify-out/
+
+# Python / Django local artifacts
+__pycache__/
+*.py[cod]
+django_emr/db.sqlite3

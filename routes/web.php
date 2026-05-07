@@ -56,3 +56,7 @@ Route::get('/dashboard', function () {
 Route::get('/clientside/profile', [ClientController::class, 'profile'])->name('client.profile');
 Route::get('/clientside/index', [ClientController::class, 'index'])->name('client.index');
 Route::get('/clientside/plan', [ClientController::class, 'plan'])->name('client.plan');
+
+// Doctor On Call (React SPA) — mirrors `flutter_emr` app shell.
+Route::view('/app', 'react_app')->name('docsoncalls.app');
+Route::view('/app/{path}', 'react_app')->where('path', '.*');
