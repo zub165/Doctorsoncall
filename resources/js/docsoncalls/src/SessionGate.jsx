@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, ApiPaths, tokenStore } from './api.js';
+import { api, ApiPaths, tokenStore, apiBaseUrl } from './api.js';
 
 function getRoleFromMe(me) {
   const v =
@@ -78,7 +78,7 @@ export function SessionGate() {
         </div>
         <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 6 }}>Loading Doctor On Call…</div>
         <div style={{ color: 'var(--dc-muted)', fontSize: 13 }}>
-          {state.error || `API: ${import.meta.env?.VITE_API_BASE_URL || 'default (local)'}`}
+          {state.error || `API: ${apiBaseUrl}`}
         </div>
       </div>
     </div>

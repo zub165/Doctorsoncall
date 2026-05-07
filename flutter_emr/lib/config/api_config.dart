@@ -18,8 +18,8 @@
 /// ## Examples
 /// - **HTTPS (443):** `--dart-define=API_BASE_URL=https://api.mywaitime.com/api/`
 /// - **HTTPS explicit port:** `--dart-define=API_BASE_URL=https://YOUR_DOMAIN:3015/api/`
-/// - **VPS IP (HTTP, dev only):** `--dart-define=API_BASE_URL=http://208.109.215.53:3015/api/`
-/// - **Local:** `http://127.0.0.1:3015/api/` or `http://127.0.0.1:3016/api/`
+/// - **VPS IP (HTTP, dev only):** `--dart-define=API_BASE_URL=http://208.109.215.53:8012/api/`
+/// - **Local Django EMR:** `http://127.0.0.1:8012/api/` (see `scripts/flutter_run_ios_simulator_local_api.sh`)
 /// - **Android emulator → Mac:** `http://10.0.2.2:PORT/api/`
 ///
 /// ## 2 — Headers (see [ApiHeaders])
@@ -38,7 +38,7 @@ class ApiConfig {
 
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://127.0.0.1:3015/api/',
+    defaultValue: 'http://127.0.0.1:8012/api/',
   );
 
   /// `GET` path under [apiBaseUrl] → **`GET /api/user-data/`** when default is kept.

@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const DEFAULT_BASE = 'http://127.0.0.1:3015/api/';
+/** Default matches local `django_emr`: `python manage.py runserver 127.0.0.1:8012` */
+const DEFAULT_BASE = 'http://127.0.0.1:8012/api/';
 
 export const tokenStore = {
   key: 'docsoncalls_token',
@@ -29,8 +30,9 @@ export const tokenStore = {
 
 export const apiBaseUrl = (() => {
   const v = import.meta.env?.VITE_API_BASE_URL;
-  if (typeof v === 'string' && v.trim()) return v.trim();
-  return DEFAULT_BASE;
+  let base = typeof v === 'string' && v.trim() ? v.trim() : DEFAULT_BASE;
+  if (!base.endsWith('/')) base += '/';
+  return base;
 })();
 
 export const api = axios.create({

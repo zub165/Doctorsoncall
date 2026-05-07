@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { api, ApiPaths, tokenStore } from './api.js';
+import { api, ApiPaths, tokenStore, apiBaseUrl } from './api.js';
 import { Dashboard } from './screens/Dashboard.jsx';
 import { Hospitals } from './screens/Hospitals.jsx';
 import { Placeholder } from './screens/Placeholder.jsx';
@@ -109,9 +109,7 @@ export function AppShell() {
       <main className="dc-main">
         <div className="dc-topbar">
           <div style={{ fontWeight: 900, fontSize: 18 }}>{title}</div>
-          <div style={{ color: 'var(--dc-muted)', fontSize: 13 }}>
-            {import.meta.env?.VITE_API_BASE_URL ? 'API configured' : 'API default (local)'}
-          </div>
+          <div style={{ color: 'var(--dc-muted)', fontSize: 13 }}>{apiBaseUrl}</div>
         </div>
 
         <Routes>
