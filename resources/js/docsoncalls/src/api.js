@@ -113,5 +113,6 @@ export const ApiPaths = {
   sharesCreate: 'shares/',
   shareDetail: (id) => `shares/${encodeURIComponent(String(id))}/`,
   shareEmail: (id) => `shares/${encodeURIComponent(String(id))}/email/`,
+  patientMe: 'patient/me/',
 };
 

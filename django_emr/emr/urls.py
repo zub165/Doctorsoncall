@@ -59,6 +59,7 @@ urlpatterns = [
     path("settings/general/<str:key>/", views.general_settings),
     path("documents/", views.patient_documents),
     path("documents/<int:doc_id>/", views.patient_document_detail),
+    path("patient/me/", views.patient_me_update),
     path("shares/mine/", views.shares_mine),
     path("shares/inbox/", views.shares_inbox),
     path("shares/", views.shares_create),

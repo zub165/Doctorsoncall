@@ -2095,3 +2095,37 @@ def shares_email_patient(request, share_id: int):
         return _success(message="Email sent")
     except Exception as e:
         return _error({"email": [str(e)]}, status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(["PATCH"])
+@authentication_classes([TokenAuthentication, SessionAuthentication])
+@permission_classes([IsAuthenticated])
+def patient_me_update(request):
+    """
+    Patient updates their own profile.
+
+    Body supports a subset of Patient fields:
+      - name, date_of_birth, email, city, country, birth_place, identity_no
+
+    NOTE: This is consent-based and intended for the patient's own account.
+    """
+    user = request.user
+    patient = Patient.objects.filter(user=user).first()
+    if not patient:
+        # Create minimal profile if missing (mirrors appointment_create behavior).
+        email = (user.email or "").strip() or "unknown@example.com"
+        patient = Patient.objects.create(
+            user=user,
+            name=user.get_full_name() or user.username,
+            date_of_birth="Unknown",
+            email=email,
+            profile_status="self-created",
+        )
+
+    allowed = {"name", "date_of_birth", "email", "city", "country", "birth_place", "identity_no"}
+    patch = {k: v for k, v in (request.data or {}).items() if k in allowed}
+    ser = PatientSerializer(patient, data=patch, partial=True)
+    if ser.is_valid():
+        obj = ser.save()
+        return _success({"patient": PatientSerializer(obj).data}, message="Updated")
+    return _error(ser.errors)

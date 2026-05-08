@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../config/api_paths.dart';
 import '../services/emergency_api_client.dart';
 import '../services/emr_features_api.dart';
 import '../services/user_api.dart';
@@ -148,9 +149,11 @@ class ClientHubScreen extends StatelessWidget {
         }
         final data = snap.data is Map ? Map<String, dynamic>.from(snap.data as Map) : <String, dynamic>{};
         final user = (data['user'] is Map) ? Map<String, dynamic>.from(data['user'] as Map) : <String, dynamic>{};
-        final fullName = (user['full_name'] ?? user['username'] ?? 'User').toString();
-        final email = (user['email'] ?? '').toString();
+        final patient = (data['patient'] is Map) ? Map<String, dynamic>.from(data['patient'] as Map) : <String, dynamic>{};
+        final fullName = (patient['name'] ?? user['full_name'] ?? user['username'] ?? 'User').toString();
+        final email = (patient['email'] ?? user['email'] ?? '').toString();
         final phone = (user['phone_number'] ?? user['phone'] ?? '').toString();
+        final dob = (patient['date_of_birth'] ?? '').toString();
 
         return ListView(
           padding: const EdgeInsets.all(16),
@@ -185,6 +188,33 @@ class ClientHubScreen extends StatelessWidget {
             _buildInfoTile(Icons.badge, 'Full Name', fullName),
             _buildInfoTile(Icons.email, 'Email', email.isEmpty ? '—' : email),
             _buildInfoTile(Icons.phone, 'Phone', phone.isEmpty ? '—' : phone),
+            _buildInfoTile(Icons.calendar_today, 'Date of Birth', dob.isEmpty ? '—' : dob),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: () async {
+                final updated = await Navigator.of(context).push<bool>(
+                  MaterialPageRoute<bool>(
+                    builder: (_) => _EditPatientProfileScreen(
+                      apiClient: apiClient,
+                      initial: {
+                        'name': fullName,
+                        'email': email,
+                        'date_of_birth': dob,
+                        'phone_number': phone,
+                      },
+                    ),
+                  ),
+                );
+                // Simple refresh: re-open Profile tab will refetch data.
+                if (updated == true && context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Profile updated')),
+                  );
+                }
+              },
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('Edit Profile'),
+            ),
           ],
         );
       },
@@ -405,6 +435,123 @@ class ClientHubScreen extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _EditPatientProfileScreen extends StatefulWidget {
+  const _EditPatientProfileScreen({required this.apiClient, required this.initial});
+
+  final EmergencyApiClient apiClient;
+  final Map<String, dynamic> initial;
+
+  @override
+  State<_EditPatientProfileScreen> createState() => _EditPatientProfileScreenState();
+}
+
+class _EditPatientProfileScreenState extends State<_EditPatientProfileScreen> {
+  late final _name = TextEditingController(text: (widget.initial['name'] ?? '').toString());
+  late final _email = TextEditingController(text: (widget.initial['email'] ?? '').toString());
+  late final _dob = TextEditingController(text: (widget.initial['date_of_birth'] ?? '').toString());
+  late final _phone = TextEditingController(text: (widget.initial['phone_number'] ?? '').toString());
+
+  bool _saving = false;
+  String? _error;
+  String? _ok;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _email.dispose();
+    _dob.dispose();
+    _phone.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    setState(() {
+      _saving = true;
+      _error = null;
+      _ok = null;
+    });
+    try {
+      // Patient model supports: name, date_of_birth, email, etc.
+      await widget.apiClient.raw.patch<dynamic>(
+        ApiPaths.patientMe,
+        data: {
+          'name': _name.text.trim(),
+          'email': _email.text.trim(),
+          'date_of_birth': _dob.text.trim(),
+          // phone is stored in User/Provider models; keep UI field read-only for now.
+        },
+      );
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _ok = 'Saved';
+      });
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = e.toString();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Edit profile')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          TextField(
+            controller: _name,
+            decoration: const InputDecoration(labelText: 'Full name'),
+            enabled: !_saving,
+            textCapitalization: TextCapitalization.words,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _email,
+            decoration: const InputDecoration(labelText: 'Email'),
+            enabled: !_saving,
+            keyboardType: TextInputType.emailAddress,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _dob,
+            decoration: const InputDecoration(labelText: 'Date of birth'),
+            enabled: !_saving,
+            // Keep validation server-side for now.
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _phone,
+            decoration: const InputDecoration(labelText: 'Phone (view only)'),
+            enabled: false,
+          ),
+          const SizedBox(height: 16),
+          if (_error != null)
+            Text(_error!, style: const TextStyle(color: Colors.red, fontWeight: FontWeight.w700)),
+          if (_ok != null)
+            Text(_ok!, style: const TextStyle(color: Color(0xFF4CAF50), fontWeight: FontWeight.w700)),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: _saving ? null : _save,
+            icon: _saving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Icon(Icons.save_outlined),
+            label: Text(_saving ? 'Saving…' : 'Save'),
+          ),
+        ],
       ),
     );
   }

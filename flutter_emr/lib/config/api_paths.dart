@@ -95,6 +95,9 @@ class ApiPaths {
   static String shareDetail(int id) => 'shares/$id/';
   static String shareEmail(int id) => 'shares/$id/email/';
 
+  // --- Patient self profile update ---
+  static const patientMe = 'patient/me/';
+
   /// Alias for [feedbackSubmit] (legacy call sites).
   static const feedback = feedbackSubmit;
 }
