@@ -396,6 +396,7 @@ class _DocumentsTab extends StatefulWidget {
 }
 
 class _DocumentsTabState extends State<_DocumentsTab> {
+  late final OfflineDb _db = OfflineDb();
   bool _loading = true;
   String? _error;
   List<Map<String, dynamic>> _docs = const [];
@@ -404,6 +405,8 @@ class _DocumentsTabState extends State<_DocumentsTab> {
   int? _processingId;
   bool _ocring = false;
   String? _ocrText;
+  bool _summarizing = false;
+  String? _aiSummary;
 
   @override
   void initState() {
@@ -501,6 +504,65 @@ class _DocumentsTabState extends State<_DocumentsTab> {
     } catch (e) {
       setState(() {
         _ocring = false;
+        _error = e.toString();
+      });
+    }
+  }
+
+  Future<void> _summarizeAndSaveLocal() async {
+    final text = (_ocrText ?? '').trim();
+    if (text.isEmpty) {
+      setState(() => _error = 'Run OCR first.');
+      return;
+    }
+    setState(() {
+      _summarizing = true;
+      _aiSummary = null;
+      _error = null;
+    });
+    try {
+      final prompt = '''
+Summarize this document into an EMR note for a clinician.
+Return plain text with sections:
+Chief complaint, History, Medications, Allergies, Labs/Imaging, Assessment/Plan.
+
+DOCUMENT OCR:
+$text
+''';
+      final res = await widget.api.aiAssist(query: prompt);
+      final summary = (res['summary'] ?? res['answer'] ?? res['response'] ?? res)
+          .toString()
+          .trim();
+
+      final now = DateTime.now();
+      final id = 'local-doc-${now.millisecondsSinceEpoch}';
+      final record = MedicalRecord(
+        id: id,
+        date: now,
+        time:
+            '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
+        symptoms: const [],
+        status: 'Completed',
+        hospitalId: '',
+        hospitalName: '',
+        notes: summary.isNotEmpty ? summary : text,
+        recordType: 'document_ocr_summary',
+      );
+      await widget.api.saveOffline(db: _db, record: record);
+
+      if (!mounted) return;
+      setState(() {
+        _summarizing = false;
+        _aiSummary = summary.isNotEmpty ? summary : text;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Saved AI summary to local patient record.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _summarizing = false;
         _error = e.toString();
       });
     }
@@ -620,6 +682,37 @@ class _DocumentsTabState extends State<_DocumentsTab> {
                 child: SelectableText(_ocrText!),
               ),
             ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: _summarizing ? null : _summarizeAndSaveLocal,
+                    icon: _summarizing
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.auto_awesome),
+                    label: Text(
+                        _summarizing ? 'Summarizing…' : 'AI summary → Save local'),
+                  ),
+                ),
+              ],
+            ),
+            if (_aiSummary != null && _aiSummary!.trim().isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: SelectableText(_aiSummary!),
+                ),
+              ),
+            ],
           ],
           const SizedBox(height: 10),
           Text(
