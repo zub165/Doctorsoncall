@@ -30,9 +30,9 @@ const TITLES = [
   'Medical records & AI',
 ];
 
-function NavItem({ to, active, label }) {
+function NavItem({ to, active, label, onClick }) {
   return (
-    <Link to={to} data-active={active ? 'true' : 'false'}>
+    <Link to={to} data-active={active ? 'true' : 'false'} onClick={onClick}>
       <span style={{ width: 18, textAlign: 'center', opacity: 0.9 }}>•</span>
       <span>{label}</span>
     </Link>
@@ -50,6 +50,7 @@ export function AppShell() {
   const nav = useNavigate();
   const loc = useLocation();
   const tab = useTab();
+  const [drawerOpen, setDrawerOpen] = React.useState(false);
 
   const title = TITLES[tab] || 'Doctor On Call';
 
@@ -100,7 +101,9 @@ export function AppShell() {
 
   return (
     <div className="dc-layout">
-      <aside className="dc-sidebar">
+      {drawerOpen ? <div className="dc-drawer-overlay" onClick={() => setDrawerOpen(false)} /> : null}
+
+      <aside className="dc-sidebar" data-open={drawerOpen ? 'true' : 'false'}>
         <div className="dc-brand">
           <div className="dc-brand-badge">+</div>
           <div>
@@ -111,30 +114,34 @@ export function AppShell() {
 
         <nav className="dc-nav" aria-label="Sidebar navigation">
           <div className="dc-nav-section">Overview</div>
-          <NavItem to={navTo(0)} active={isActive(0)} label="Dashboard" />
+          <NavItem to={navTo(0)} active={isActive(0)} label="Dashboard" onClick={() => setDrawerOpen(false)} />
           <div className="dc-nav-section">Explore</div>
-          <NavItem to={navTo(1)} active={isActive(1)} label="Hospitals" />
-          {!isPatient ? <NavItem to={navTo(2)} active={isActive(2)} label="Triage" /> : null}
-          <NavItem to={navTo(3)} active={isActive(3)} label="Courses" />
-          <NavItem to={navTo(4)} active={isActive(4)} label="AI assistant" />
-          {!isPatient ? <NavItem to={navTo(5)} active={isActive(5)} label="Doctor notes (SOAP)" /> : null}
+          <NavItem to={navTo(1)} active={isActive(1)} label="Hospitals" onClick={() => setDrawerOpen(false)} />
+          {!isPatient ? <NavItem to={navTo(2)} active={isActive(2)} label="Triage" onClick={() => setDrawerOpen(false)} /> : null}
+          <NavItem to={navTo(3)} active={isActive(3)} label="Courses" onClick={() => setDrawerOpen(false)} />
+          <NavItem to={navTo(4)} active={isActive(4)} label="AI assistant" onClick={() => setDrawerOpen(false)} />
+          {!isPatient ? <NavItem to={navTo(5)} active={isActive(5)} label="Doctor notes (SOAP)" onClick={() => setDrawerOpen(false)} /> : null}
           <div className="dc-nav-section">Care</div>
-          <NavItem to={navTo(6)} active={isActive(6)} label="Appointments" />
-          {!isPatient ? <NavItem to={navTo(7)} active={isActive(7)} label="Doctor visit" /> : null}
-          <NavItem to={navTo(8)} active={isActive(8)} label="Book appointment" />
-          <NavItem to={navTo(9)} active={isActive(9)} label="Discovery" />
-          {isAdmin || isDoctor ? <NavItem to={navTo(10)} active={isActive(10)} label="Patients ↔ providers" /> : null}
-          <NavItem to={navTo(11)} active={isActive(11)} label="Feedback" />
+          <NavItem to={navTo(6)} active={isActive(6)} label="Appointments" onClick={() => setDrawerOpen(false)} />
+          {!isPatient ? <NavItem to={navTo(7)} active={isActive(7)} label="Doctor visit" onClick={() => setDrawerOpen(false)} /> : null}
+          <NavItem to={navTo(8)} active={isActive(8)} label="Book appointment" onClick={() => setDrawerOpen(false)} />
+          <NavItem to={navTo(9)} active={isActive(9)} label="Discovery" onClick={() => setDrawerOpen(false)} />
+          {isAdmin || isDoctor ? (
+            <NavItem to={navTo(10)} active={isActive(10)} label="Patients ↔ providers" onClick={() => setDrawerOpen(false)} />
+          ) : null}
+          <NavItem to={navTo(11)} active={isActive(11)} label="Feedback" onClick={() => setDrawerOpen(false)} />
           <div className="dc-nav-section">Account</div>
-          <NavItem to={navTo(12)} active={isActive(12)} label="Settings" />
-          <NavItem to={navTo(13)} active={isActive(13)} label="Change password" />
-          <NavItem to={navTo(14)} active={isActive(14)} label="Client hub" />
-          {isPatient ? <NavItem to={navTo(15)} active={isActive(15)} label="Provider application" /> : null}
-          {isAdmin ? <NavItem to={navTo(16)} active={isActive(16)} label="Admin hub" /> : null}
-          <NavItem to={navTo(17)} active={isActive(17)} label="Medical records & AI" />
+          <NavItem to={navTo(12)} active={isActive(12)} label="Settings" onClick={() => setDrawerOpen(false)} />
+          <NavItem to={navTo(13)} active={isActive(13)} label="Change password" onClick={() => setDrawerOpen(false)} />
+          <NavItem to={navTo(14)} active={isActive(14)} label="Client hub" onClick={() => setDrawerOpen(false)} />
+          {isPatient ? (
+            <NavItem to={navTo(15)} active={isActive(15)} label="Provider application" onClick={() => setDrawerOpen(false)} />
+          ) : null}
+          {isAdmin ? <NavItem to={navTo(16)} active={isActive(16)} label="Admin hub" onClick={() => setDrawerOpen(false)} /> : null}
+          <NavItem to={navTo(17)} active={isActive(17)} label="Medical records & AI" onClick={() => setDrawerOpen(false)} />
         </nav>
 
-        <div style={{ marginTop: 14 }}>
+        <div className="dc-sidebar-footer">
           <button className="dc-btn dc-btn-danger" style={{ width: '100%' }} onClick={signOut}>
             Sign out
           </button>
@@ -143,7 +150,20 @@ export function AppShell() {
 
       <main className="dc-main">
         <div className="dc-topbar">
-          <div style={{ fontWeight: 900, fontSize: 18 }}>{title}</div>
+          <div className="dc-topbar-left">
+            <button
+              className="dc-icon-btn"
+              aria-label="Open menu"
+              onClick={() => setDrawerOpen(true)}
+              title="Menu"
+              type="button"
+            >
+              <span style={{ fontSize: 18, lineHeight: 1 }}>☰</span>
+            </button>
+            <div style={{ fontWeight: 900, fontSize: 18, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {title}
+            </div>
+          </div>
           <div style={{ color: 'var(--dc-muted)', fontSize: 13 }}>
             {apiBaseUrl} · {me.loading ? 'role: …' : `role: ${role || 'guest'}`}
           </div>
@@ -248,71 +268,526 @@ function KeyValue({ k, v }) {
 }
 
 function OsmTriage() {
-  const s = useApiCall(() => api.get(ApiPaths.osmSystemStatus).then((r) => r.data), []);
+  const [v, setV] = React.useState({
+    height_cm: '',
+    weight_kg: '',
+    temperature_c: '',
+    bmi: '',
+    bp_sys: '',
+    bp_dia: '',
+    pulse_bpm: '',
+    resp_min: '',
+    spo2: '',
+    glucose_mgdl: '',
+    notes: '',
+  });
+  const [photo, setPhoto] = React.useState(null);
+
+  React.useEffect(() => {
+    const h = Number(v.height_cm);
+    const w = Number(v.weight_kg);
+    if (Number.isFinite(h) && Number.isFinite(w) && h > 0 && w > 0) {
+      const m = h / 100;
+      const bmi = w / (m * m);
+      if (Number.isFinite(bmi)) {
+        setV((s) => ({ ...s, bmi: bmi.toFixed(1) }));
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [v.height_cm, v.weight_kg]);
+
+  function exportJson() {
+    const payload = { ...v, photo_name: photo?.name || null, exported_at: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'triage.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportText() {
+    const lines = Object.entries(v)
+      .map(([k, val]) => `${k.replaceAll('_', ' ')}: ${val}`)
+      .join('\n');
+    const blob = new Blob([lines], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'triage.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
-    <Card title="Triage (OSM tools)">
-      {s.loading ? (
-        <div style={{ color: 'var(--dc-muted)' }}>Loading…</div>
-      ) : s.error ? (
-        <div style={{ color: 'var(--dc-danger)', fontWeight: 800 }}>{s.error}</div>
-      ) : (
-        <pre style={{ margin: 0, padding: 12, borderRadius: 12, background: '#0b1220', color: '#e5e7eb', overflowX: 'auto', fontSize: 12 }}>
-          {JSON.stringify(s.data, null, 2)}
-        </pre>
-      )}
-    </Card>
+    <div className="dc-row" style={{ gap: 14 }}>
+      <div className="dc-appbar">
+        <div className="dc-appbar-title">
+          <h2>Triage</h2>
+          <span style={{ opacity: 0.9, fontWeight: 900 }}>☰</span>
+        </div>
+      </div>
+
+      <div>
+        <div style={{ fontWeight: 950, fontSize: 20 }}>Triage</div>
+        <div style={{ color: 'var(--dc-muted)', fontWeight: 800, marginTop: 4 }}>
+          Vitals, BMI, and skin photo for quick assessment.
+        </div>
+      </div>
+
+      <div className="dc-card" style={{ padding: 16 }}>
+        <div className="dc-grid-2">
+          <input className="dc-input" placeholder="Height (cm)" value={v.height_cm} onChange={(e) => setV((s) => ({ ...s, height_cm: e.target.value }))} />
+          <input className="dc-input" placeholder="Weight (kg)" value={v.weight_kg} onChange={(e) => setV((s) => ({ ...s, weight_kg: e.target.value }))} />
+          <input className="dc-input" placeholder="Temperature (°C)" value={v.temperature_c} onChange={(e) => setV((s) => ({ ...s, temperature_c: e.target.value }))} />
+          <input className="dc-input" placeholder="BMI" value={v.bmi} readOnly />
+          <input className="dc-input" placeholder="BP Sys" value={v.bp_sys} onChange={(e) => setV((s) => ({ ...s, bp_sys: e.target.value }))} />
+          <input className="dc-input" placeholder="BP Dia" value={v.bp_dia} onChange={(e) => setV((s) => ({ ...s, bp_dia: e.target.value }))} />
+          <input className="dc-input" placeholder="Pulse (bpm)" value={v.pulse_bpm} onChange={(e) => setV((s) => ({ ...s, pulse_bpm: e.target.value }))} />
+          <input className="dc-input" placeholder="Resp (/min)" value={v.resp_min} onChange={(e) => setV((s) => ({ ...s, resp_min: e.target.value }))} />
+          <input className="dc-input" placeholder="SpO2 (%)" value={v.spo2} onChange={(e) => setV((s) => ({ ...s, spo2: e.target.value }))} />
+          <input className="dc-input" placeholder="Glucose (mg/dL)" value={v.glucose_mgdl} onChange={(e) => setV((s) => ({ ...s, glucose_mgdl: e.target.value }))} />
+        </div>
+        <textarea className="dc-input" rows={4} placeholder="Notes" value={v.notes} onChange={(e) => setV((s) => ({ ...s, notes: e.target.value }))} style={{ marginTop: 12 }} />
+
+        <div style={{ display: 'flex', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
+          <label className="dc-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 10, fontWeight: 950 }}>
+            📷 Camera
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              style={{ display: 'none' }}
+              onChange={(e) => setPhoto(e.target.files?.[0] || null)}
+            />
+          </label>
+          <label className="dc-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 10, fontWeight: 950 }}>
+            🖼️ Gallery
+            <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => setPhoto(e.target.files?.[0] || null)} />
+          </label>
+        </div>
+
+        {photo ? <div style={{ marginTop: 10, color: 'var(--dc-muted)', fontWeight: 800, fontSize: 12 }}>Selected: {photo.name}</div> : null}
+
+        <div style={{ display: 'flex', gap: 12, marginTop: 14, flexWrap: 'wrap' }}>
+          <button className="dc-btn dc-btn-primary" type="button" onClick={exportJson} style={{ fontWeight: 950 }}>
+            ⤓ Export JSON
+          </button>
+          <button className="dc-btn dc-btn-primary" type="button" onClick={exportText} style={{ fontWeight: 950 }}>
+            ⤓ Export text
+          </button>
+        </div>
+
+        <div style={{ marginTop: 10, color: 'var(--dc-muted)', fontWeight: 800, fontSize: 12 }}>
+          Next step: save this triage into the patient medical record offline + sync.
+        </div>
+      </div>
+    </div>
   );
 }
 
 function Courses() {
+  const [tab, setTab] = React.useState('education'); // education | courses
+  const [q, setQ] = React.useState('');
   const s = useApiCall(() => api.get(ApiPaths.coursesV1).then((r) => r.data), []);
-  const items = Array.isArray(s.data) ? s.data : s.data?.results || s.data?.data || [];
+  const itemsAll = React.useMemo(() => {
+    const x = s.data;
+    const arr = Array.isArray(x) ? x : x?.results || x?.data || [];
+    return Array.isArray(arr) ? arr : [];
+  }, [s.data]);
+  const items = React.useMemo(() => {
+    const qq = q.trim().toLowerCase();
+    if (!qq) return itemsAll;
+    return itemsAll.filter((c) => JSON.stringify(c || {}).toLowerCase().includes(qq));
+  }, [itemsAll, q]);
+
   return (
-    <Card title="Courses">
-      {s.loading ? (
-        <div style={{ color: 'var(--dc-muted)' }}>Loading…</div>
-      ) : s.error ? (
-        <div style={{ color: 'var(--dc-danger)', fontWeight: 800 }}>{s.error}</div>
-      ) : items.length === 0 ? (
-        <div style={{ color: 'var(--dc-muted)' }}>No courses returned.</div>
-      ) : (
-        <div className="dc-row">
-          {items.slice(0, 30).map((c, idx) => (
-            <div key={c?.id || idx} style={{ padding: 12, border: '1px solid var(--dc-border)', borderRadius: 14 }}>
-              <div style={{ fontWeight: 800 }}>{(c?.title || c?.name || 'Course').toString()}</div>
-              <div style={{ color: 'var(--dc-muted)', fontSize: 13 }}>{(c?.description || '').toString()}</div>
+    <div className="dc-row" style={{ gap: 14 }}>
+      <div className="dc-appbar">
+        <div className="dc-appbar-title">
+          <h2>Courses</h2>
+          <span style={{ opacity: 0.9, fontWeight: 900 }}>☰</span>
+        </div>
+        <div className="dc-tabs" role="tablist" aria-label="Courses tabs">
+          <button className="dc-tab" type="button" data-active={tab === 'education' ? 'true' : 'false'} onClick={() => setTab('education')}>
+            <span aria-hidden="true">📖</span>
+            Education
+          </button>
+          <button className="dc-tab" type="button" data-active={tab === 'courses' ? 'true' : 'false'} onClick={() => setTab('courses')}>
+            <span aria-hidden="true">🎓</span>
+            Courses
+          </button>
+          <button className="dc-tab" type="button" data-active="false" disabled>
+            <span aria-hidden="true">⋯</span>
+            More
+          </button>
+        </div>
+      </div>
+
+      {tab === 'education' ? (
+        <div className="dc-row" style={{ gap: 14 }}>
+          <div style={{ fontWeight: 950, fontSize: 18 }}>Patient education (MedlinePlus)</div>
+          <div className="dc-card" style={{ padding: 16 }}>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <input className="dc-input" placeholder="Search topic" value={q} onChange={(e) => setQ(e.target.value)} />
+              <button className="dc-btn dc-btn-primary" type="button" style={{ fontWeight: 950 }}>
+                Search
+              </button>
             </div>
-          ))}
+            <div style={{ textAlign: 'center', padding: 34, color: 'var(--dc-muted)', fontWeight: 800 }}>
+              Search to see education resources
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="dc-row" style={{ gap: 14 }}>
+          <div style={{ fontWeight: 950, fontSize: 18 }}>Preventive care courses</div>
+          <div style={{ color: 'var(--dc-muted)', fontWeight: 800 }}>Common topics patients need for prevention and wellness.</div>
+          <div className="dc-card" style={{ padding: 14 }}>
+            <input className="dc-input" placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)} />
+          </div>
+
+          {s.loading ? (
+            <div className="dc-card" style={{ color: 'var(--dc-muted)' }}>
+              Loading…
+            </div>
+          ) : s.error ? (
+            <div className="dc-card" style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>
+              {s.error}
+            </div>
+          ) : items.length === 0 ? (
+            <div className="dc-card" style={{ color: 'var(--dc-muted)' }}>
+              No courses returned.
+            </div>
+          ) : (
+            <div className="dc-row" style={{ gap: 12 }}>
+              {items.slice(0, 30).map((c, idx) => {
+                const title = (c?.title || c?.name || 'Course').toString();
+                const desc = (c?.description || c?.summary || '').toString();
+                const mins = c?.minutes || c?.duration_minutes || c?.duration || '';
+                const level = (c?.level || c?.difficulty || 'Beginner').toString();
+                const tags = Array.isArray(c?.tags) ? c.tags : [];
+                const resources = Array.isArray(c?.resources) ? c.resources : [];
+                return (
+                  <div key={c?.id || idx} className="dc-card" style={{ padding: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                      <div>
+                        <div style={{ fontWeight: 950, fontSize: 16 }}>{title}</div>
+                        <div style={{ color: 'var(--dc-muted)', fontWeight: 800, marginTop: 6 }}>{level}</div>
+                        <div style={{ color: 'var(--dc-muted)', fontSize: 13, marginTop: 6 }}>{desc}</div>
+                      </div>
+                      {mins ? (
+                        <div className="dc-chip" data-active="true" style={{ cursor: 'default' }}>
+                          {mins} min
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {tags.length ? (
+                      <div className="dc-chip-row" style={{ marginTop: 12 }}>
+                        {tags.slice(0, 6).map((t) => (
+                          <span key={t} className="dc-chip" style={{ cursor: 'default' }}>
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {resources.length ? (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ fontWeight: 950, marginBottom: 8 }}>Resources</div>
+                        <div className="dc-chip-row">
+                          {resources.slice(0, 4).map((r) => (
+                            <a key={r?.url || r?.title} className="dc-chip" href={r?.url || '#'} target="_blank" rel="noreferrer">
+                              {(r?.title || 'Link').toString()}
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
-    </Card>
+    </div>
   );
 }
 
 function AiAssistant() {
-  return <Placeholder title="AI assistant" tab={4} />;
+  const [msg, setMsg] = React.useState('');
+  const [history, setHistory] = React.useState([
+    {
+      role: 'assistant',
+      text:
+        "Hi! I'm your AI medical assistant.\n\nI can help with basic symptoms and next steps, but I'm not a doctor.\nIf you have severe symptoms (trouble breathing, chest pain, fainting, severe bleeding, stroke signs), call emergency services immediately.",
+    },
+  ]);
+
+  const quick = ['Headache', 'Chest pain', 'Fever', 'Nausea', 'Breathing issues', 'Dental pain', 'Bleeding', 'Injury', 'Fatigue', 'Medication help'];
+
+  function send() {
+    const t = msg.trim();
+    if (!t) return;
+    setHistory((h) => [...h, { role: 'user', text: t }]);
+    setMsg('');
+    // UI-only for now: backend endpoint can be wired later.
+    setHistory((h) => [...h, { role: 'assistant', text: 'Thanks — please describe duration, severity (0–10), and any red flags. If severe, seek urgent care.' }]);
+  }
+
+  return (
+    <div className="dc-row" style={{ gap: 14 }}>
+      <div className="dc-appbar">
+        <div className="dc-appbar-title">
+          <h2>AI assistant</h2>
+          <span style={{ opacity: 0.9, fontWeight: 900 }}>☰</span>
+        </div>
+      </div>
+
+      <div className="dc-card" style={{ background: '#fff6f6' }}>
+        <div style={{ color: 'var(--dc-primary-dark)', fontWeight: 900 }}>
+          Not for emergencies. If severe symptoms, call local emergency services.
+        </div>
+      </div>
+
+      <div className="dc-chip-row">
+        {quick.map((t) => (
+          <button key={t} type="button" className="dc-chip" onClick={() => setMsg(t)}>
+            {t}
+          </button>
+        ))}
+      </div>
+
+      <div className="dc-card" style={{ padding: 16 }}>
+        <div className="dc-row" style={{ gap: 10 }}>
+          {history.slice(-6).map((m, idx) => (
+            <div key={idx} style={{ padding: 12, borderRadius: 14, background: m.role === 'user' ? 'rgba(211,47,47,0.08)' : '#f3f4f6' }}>
+              <div style={{ whiteSpace: 'pre-wrap', fontWeight: 800, color: m.role === 'user' ? 'var(--dc-primary-dark)' : 'var(--dc-text)' }}>
+                {m.text}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+          <input className="dc-input" placeholder="Send a message" value={msg} onChange={(e) => setMsg(e.target.value)} />
+          <button className="dc-btn dc-btn-primary" type="button" onClick={send} style={{ fontWeight: 950 }}>
+            ▶
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function SoapNotes() {
-  return <Placeholder title="Doctor notes (SOAP)" tab={5} />;
+  const [raw, setRaw] = React.useState('');
+  const [soap, setSoap] = React.useState({ s: '', o: '', a: '', p: '' });
+  const [ai, setAi] = React.useState({ loading: false, error: '' });
+
+  async function aiAssist() {
+    const text = raw.trim();
+    if (!text) return;
+    setAi({ loading: true, error: '' });
+    try {
+      const { data } = await api.post(ApiPaths.medicalRecordsAiAssist, { prompt: `Convert to SOAP:\n\n${text}` });
+      const out = JSON.stringify(data, null, 2);
+      setSoap((s) => ({ ...s, s: out }));
+      setAi({ loading: false, error: '' });
+    } catch (err) {
+      const msg = err?.response?.data?.message || err?.response?.data?.detail || 'AI Assist failed';
+      setAi({ loading: false, error: msg.toString() });
+    }
+  }
+
+  return (
+    <div className="dc-row" style={{ gap: 14 }}>
+      <div className="dc-appbar">
+        <div className="dc-appbar-title">
+          <h2>Doctor notes (SOAP)</h2>
+          <span style={{ opacity: 0.9, fontWeight: 900 }}>☰</span>
+        </div>
+      </div>
+
+      <div>
+        <div style={{ fontWeight: 950, fontSize: 20 }}>Doctor note (SOAP)</div>
+        <div style={{ color: 'var(--dc-muted)', fontWeight: 800, marginTop: 4 }}>
+          Dictate or paste notes, then use AI Assist to structure into SOAP.
+        </div>
+      </div>
+
+      <div className="dc-card" style={{ padding: 16 }}>
+        <textarea className="dc-input" rows={5} placeholder="Dictation / free text" value={raw} onChange={(e) => setRaw(e.target.value)} />
+        <div style={{ display: 'flex', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
+          <button className="dc-btn dc-btn-primary" type="button" onClick={aiAssist} disabled={ai.loading} style={{ flex: 1, minWidth: 220, fontWeight: 950 }}>
+            ✨ AI Assist SOAP
+          </button>
+          <button className="dc-btn" type="button" onClick={() => navigator.clipboard?.writeText(JSON.stringify({ raw, soap }, null, 2))} style={{ minWidth: 120, fontWeight: 950 }}>
+            📋 Copy
+          </button>
+        </div>
+        {ai.error ? <div style={{ marginTop: 10, color: 'var(--dc-danger)', fontWeight: 900 }}>{ai.error}</div> : null}
+      </div>
+
+      <div className="dc-row" style={{ gap: 12 }}>
+        <textarea className="dc-input" rows={3} placeholder="Subjective (S)" value={soap.s} onChange={(e) => setSoap((s) => ({ ...s, s: e.target.value }))} />
+        <textarea className="dc-input" rows={3} placeholder="Objective (O)" value={soap.o} onChange={(e) => setSoap((s) => ({ ...s, o: e.target.value }))} />
+        <textarea className="dc-input" rows={3} placeholder="Assessment (A)" value={soap.a} onChange={(e) => setSoap((s) => ({ ...s, a: e.target.value }))} />
+        <textarea className="dc-input" rows={3} placeholder="Plan (P)" value={soap.p} onChange={(e) => setSoap((s) => ({ ...s, p: e.target.value }))} />
+      </div>
+    </div>
+  );
 }
 
 function DoctorVisit() {
-  return <Placeholder title="Doctor visit" tab={7} />;
+  const tools = [
+    { label: 'Video', icon: '🎥' },
+    { label: 'Audio', icon: '🎧' },
+    { label: 'Upload', icon: '📎' },
+    { label: 'Import', icon: '⬇️' },
+    { label: 'Export PDF', icon: '🧾' },
+    { label: 'Export text', icon: '📝' },
+  ];
+
+  return (
+    <div className="dc-row" style={{ gap: 14 }}>
+      <div className="dc-appbar">
+        <div className="dc-appbar-title">
+          <h2>Doctor visit</h2>
+          <span style={{ opacity: 0.9, fontWeight: 900 }}>↻</span>
+        </div>
+      </div>
+
+      <div className="dc-card" style={{ padding: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <div style={{ fontWeight: 950 }}>Latest local medical record</div>
+            <div style={{ color: 'var(--dc-muted)', fontWeight: 800, fontSize: 13, marginTop: 4 }}>
+              No local record found yet. Create one from Medical records.
+            </div>
+          </div>
+          <button className="dc-btn" type="button" style={{ fontWeight: 950 }}>
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <div className="dc-card" style={{ padding: 16 }}>
+        <div style={{ fontWeight: 950, marginBottom: 12 }}>Visit tools</div>
+        <div className="dc-grid-2">
+          {tools.map((t) => (
+            <button key={t.label} className="dc-btn dc-btn-primary" type="button" style={{ padding: 14, borderRadius: 16, fontWeight: 950 }}>
+              {t.icon} {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function Discovery() {
+  const [tab, setTab] = React.useState('countries'); // countries | specialities | providers
+  const [q, setQ] = React.useState('');
   const countries = useApiCall(() => api.get(ApiPaths.countries).then((r) => r.data), []);
   const specialities = useApiCall(() => api.get(ApiPaths.specialities).then((r) => r.data), []);
   const providers = useApiCall(() => api.get(ApiPaths.providers).then((r) => r.data), []);
 
   const list = (x) => (Array.isArray(x) ? x : x?.results || x?.data || []);
 
+  const items = React.useMemo(() => {
+    const qq = q.trim().toLowerCase();
+    const src =
+      tab === 'countries'
+        ? list(countries.data)
+        : tab === 'specialities'
+          ? list(specialities.data)
+          : list(providers.data);
+    if (!qq) return src;
+    return src.filter((m) => JSON.stringify(m || {}).toLowerCase().includes(qq));
+  }, [tab, q, countries.data, specialities.data, providers.data]);
+
+  const loading =
+    tab === 'countries' ? countries.loading : tab === 'specialities' ? specialities.loading : providers.loading;
+  const error =
+    tab === 'countries' ? countries.error : tab === 'specialities' ? specialities.error : providers.error;
+
   return (
-    <div className="dc-row">
-      <Card title="Countries">{renderMiniList(countries, list(countries.data), (m) => m.country_name || m.name, (m) => m.country_code || m.code)}</Card>
-      <Card title="Specialities">{renderMiniList(specialities, list(specialities.data), (m) => m.speciality_name || m.name, (m) => (m.country || m.country_id || '').toString())}</Card>
-      <Card title="Providers">{renderMiniList(providers, list(providers.data), (m) => m.full_name || m.name, (m) => (m.status || '').toString())}</Card>
+    <div className="dc-row" style={{ gap: 14 }}>
+      <div className="dc-appbar">
+        <div className="dc-appbar-title">
+          <h2>Countries · Specialities · Providers</h2>
+          <span style={{ opacity: 0.9, fontWeight: 900 }}>☰</span>
+        </div>
+        <div className="dc-tabs" role="tablist" aria-label="Discovery tabs">
+          <button className="dc-tab" type="button" data-active={tab === 'countries' ? 'true' : 'false'} onClick={() => setTab('countries')}>
+            <span aria-hidden="true">🌐</span>
+            Countries
+          </button>
+          <button
+            className="dc-tab"
+            type="button"
+            data-active={tab === 'specialities' ? 'true' : 'false'}
+            onClick={() => setTab('specialities')}
+          >
+            <span aria-hidden="true">➕</span>
+            Specialities
+          </button>
+          <button className="dc-tab" type="button" data-active={tab === 'providers' ? 'true' : 'false'} onClick={() => setTab('providers')}>
+            <span aria-hidden="true">👥</span>
+            Providers
+          </button>
+        </div>
+      </div>
+
+      <div className="dc-card" style={{ padding: 14 }}>
+        <input className="dc-input" placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)} />
+      </div>
+
+      {loading ? (
+        <div className="dc-card" style={{ color: 'var(--dc-muted)' }}>
+          Loading…
+        </div>
+      ) : error ? (
+        <div className="dc-card" style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>
+          {error}
+        </div>
+      ) : (
+        <div className="dc-list">
+          {items.slice(0, 60).map((m, idx) => {
+            const isCountries = tab === 'countries';
+            const isSpecs = tab === 'specialities';
+            const isProviders = tab === 'providers';
+
+            const title = isCountries
+              ? (m?.country_name || m?.name || 'Country')
+              : isSpecs
+                ? (m?.speciality_name || m?.name || 'Speciality')
+                : (m?.full_name || m?.name || 'Provider');
+            const sub = isCountries
+              ? (m?.country_code || m?.code || '').toString()
+              : isSpecs
+                ? ((m?.country || m?.country_id || '')?.toString() || '')
+                : `${(m?.email || '').toString()}${m?.status ? ` · ${m.status}` : ''}`;
+
+            return (
+              <div className="dc-list-row" key={m?.id || `${tab}-${idx}`}>
+                <div className="dc-list-left">
+                  <div className="dc-avatar">{isCountries ? '🌐' : isSpecs ? '➕' : (title || 'P').toString().slice(0, 1).toUpperCase()}</div>
+                  <div className="dc-list-text">
+                    <div className="dc-list-title">{title?.toString()}</div>
+                    <div className="dc-list-sub">{sub}</div>
+                  </div>
+                </div>
+                <div className="dc-chevron">›</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -334,19 +809,111 @@ function renderMiniList(state, items, titleFn, subFn) {
 }
 
 function PatientsProviders() {
-  const s = useApiCall(() => api.get(ApiPaths.patientsProviders).then((r) => r.data), []);
+  const [tab, setTab] = React.useState('patients'); // patients | physicians | schedule
+  const patients = useApiCall(() => api.get(ApiPaths.patients).then((r) => r.data), []);
+  const providers = useApiCall(() => api.get(ApiPaths.providers).then((r) => r.data), []);
+  const appts = useApiCall(() => api.get(ApiPaths.allAppointments).then((r) => r.data), []);
+
+  const list = (x) => (Array.isArray(x) ? x : x?.results || x?.data || []);
+  const items =
+    tab === 'patients' ? list(patients.data) : tab === 'physicians' ? list(providers.data) : list(appts.data);
+  const loading = tab === 'patients' ? patients.loading : tab === 'physicians' ? providers.loading : appts.loading;
+  const error = tab === 'patients' ? patients.error : tab === 'physicians' ? providers.error : appts.error;
+
   return (
-    <Card title="Patients ↔ providers">
-      {s.loading ? (
-        <div style={{ color: 'var(--dc-muted)' }}>Loading…</div>
-      ) : s.error ? (
-        <div style={{ color: 'var(--dc-danger)', fontWeight: 800 }}>{s.error}</div>
+    <div className="dc-row" style={{ gap: 14 }}>
+      <div className="dc-appbar">
+        <div className="dc-appbar-title">
+          <h2>Patients · Providers</h2>
+          <span style={{ opacity: 0.9, fontWeight: 900 }}>☰</span>
+        </div>
+        <div className="dc-tabs" role="tablist" aria-label="Patients/providers tabs">
+          <button className="dc-tab" type="button" data-active={tab === 'patients' ? 'true' : 'false'} onClick={() => setTab('patients')}>
+            <span aria-hidden="true">👤</span>
+            Patients
+          </button>
+          <button
+            className="dc-tab"
+            type="button"
+            data-active={tab === 'physicians' ? 'true' : 'false'}
+            onClick={() => setTab('physicians')}
+          >
+            <span aria-hidden="true">🩺</span>
+            Physicians
+          </button>
+          <button className="dc-tab" type="button" data-active={tab === 'schedule' ? 'true' : 'false'} onClick={() => setTab('schedule')}>
+            <span aria-hidden="true">📅</span>
+            Schedule
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="dc-card" style={{ color: 'var(--dc-muted)' }}>
+          Loading…
+        </div>
+      ) : error ? (
+        <div className="dc-card" style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>
+          {error}
+        </div>
+      ) : items.length === 0 ? (
+        <div className="dc-card" style={{ color: 'var(--dc-muted)', textAlign: 'center', padding: 40 }}>
+          No appointments yet
+        </div>
       ) : (
-        <pre style={{ margin: 0, padding: 12, borderRadius: 12, background: '#0b1220', color: '#e5e7eb', overflowX: 'auto', fontSize: 12 }}>
-          {JSON.stringify(s.data, null, 2)}
-        </pre>
+        <div className="dc-list">
+          {items.slice(0, 80).map((m, idx) => {
+            if (tab === 'patients') {
+              const title = (m?.full_name || m?.name || m?.username || 'Patient').toString();
+              const sub = (m?.email || '').toString();
+              return (
+                <div className="dc-list-row" key={m?.id || `p-${idx}`}>
+                  <div className="dc-list-left">
+                    <div className="dc-avatar">👤</div>
+                    <div className="dc-list-text">
+                      <div className="dc-list-title">{title}</div>
+                      <div className="dc-list-sub">{sub}</div>
+                    </div>
+                  </div>
+                  <div className="dc-chevron">›</div>
+                </div>
+              );
+            }
+            if (tab === 'physicians') {
+              const title = (m?.full_name || m?.name || 'Provider').toString();
+              const sub = `${(m?.email || '').toString()}${m?.status ? ` · ${m.status}` : ''}`;
+              return (
+                <div className="dc-list-row" key={m?.id || `d-${idx}`}>
+                  <div className="dc-list-left">
+                    <div className="dc-avatar">{title.slice(0, 1).toUpperCase()}</div>
+                    <div className="dc-list-text">
+                      <div className="dc-list-title">{title}</div>
+                      <div className="dc-list-sub">{sub}</div>
+                    </div>
+                  </div>
+                  <div className="dc-chevron">›</div>
+                </div>
+              );
+            }
+
+            const title = (m?.title || m?.reason || 'Appointment').toString();
+            const sub = (m?.date || m?.scheduled_at || m?.created_at || '').toString();
+            return (
+              <div className="dc-list-row" key={m?.id || `a-${idx}`}>
+                <div className="dc-list-left">
+                  <div className="dc-avatar">📅</div>
+                  <div className="dc-list-text">
+                    <div className="dc-list-title">{title}</div>
+                    <div className="dc-list-sub">{sub}</div>
+                  </div>
+                </div>
+                <div className="dc-chevron">›</div>
+              </div>
+            );
+          })}
+        </div>
       )}
-    </Card>
+    </div>
   );
 }
 
@@ -355,68 +922,395 @@ function Settings({ isAdmin }) {
   const me = useApiCall(() => api.get(ApiPaths.docOnCallMe).then((r) => r.data), []);
   const repl = useApiCall(() => api.get(ApiPaths.replicateToken).then((r) => r.data), []);
 
+  const roleLabel = me.loading
+    ? '…'
+    : me.error
+      ? 'Failed'
+      : `OK (role: ${(me.data?.data?.role ?? me.data?.role ?? 'unknown').toString()})`;
+
+  const replLabel = repl.loading
+    ? '…'
+    : repl.error
+      ? 'Not configured'
+      : (repl.data?.configured === true || repl.data?.data?.configured === true)
+        ? 'Configured'
+        : 'Not configured';
+
   return (
-    <div className="dc-row">
-      <Card title="API connections">
-        <KeyValue k="API base URL" v={apiBaseUrl} />
-        <KeyValue k="Backend health" v={health.loading ? '…' : health.error ? 'Not reachable' : 'Connected'} />
-        <KeyValue k="Role endpoint" v={me.loading ? '…' : me.error ? 'Failed' : `OK (role: ${(me.data?.data?.role ?? me.data?.role ?? 'unknown').toString()})`} />
-        <KeyValue
-          k="AI provider (Replicate)"
-          v={
-            repl.loading
-              ? '…'
-              : repl.error
-                ? 'Not configured'
-                : (repl.data?.configured === true || repl.data?.data?.configured === true)
-                  ? 'Configured'
-                  : 'Not configured'
-          }
-        />
-        {isAdmin ? (
-          <div style={{ marginTop: 12 }}>
-            <Link className="dc-btn dc-btn-primary" to="/shell/16">
-              Open Admin hub
-            </Link>
+    <div className="dc-row" style={{ gap: 14 }}>
+      <div className="dc-appbar">
+        <div className="dc-appbar-title">
+          <h2>Settings</h2>
+          <span style={{ opacity: 0.9, fontWeight: 900 }}>☰</span>
+        </div>
+      </div>
+
+      <div style={{ fontWeight: 950, fontSize: 20 }}>API connections</div>
+
+      <div className="dc-list">
+        <div className="dc-list-row">
+          <div className="dc-list-left">
+            <div className="dc-avatar">🔗</div>
+            <div className="dc-list-text">
+              <div className="dc-list-title">API base URL</div>
+              <div className="dc-list-sub">{apiBaseUrl}</div>
+            </div>
           </div>
-        ) : null}
-      </Card>
+        </div>
+
+        <div className="dc-list-row">
+          <div className="dc-list-left">
+            <div className="dc-avatar">✅</div>
+            <div className="dc-list-text">
+              <div className="dc-list-title">Backend health</div>
+              <div className="dc-list-sub">
+                {health.loading ? 'Checking…' : health.error ? 'Not reachable' : 'Connected'}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="dc-list-row">
+          <div className="dc-list-left">
+            <div className="dc-avatar">👤</div>
+            <div className="dc-list-text">
+              <div className="dc-list-title">Role endpoint</div>
+              <div className="dc-list-sub">{roleLabel}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="dc-list-row">
+          <div className="dc-list-left">
+            <div className="dc-avatar">🤖</div>
+            <div className="dc-list-text">
+              <div className="dc-list-title">AI provider (Replicate)</div>
+              <div className="dc-list-sub">{replLabel}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {isAdmin ? (
+        <div className="dc-row" style={{ gap: 10 }}>
+          <div style={{ fontWeight: 950, fontSize: 20 }}>Administration</div>
+          <Link className="dc-list-row" to="/shell/16">
+            <div className="dc-list-left">
+              <div className="dc-avatar">🛡️</div>
+              <div className="dc-list-text">
+                <div className="dc-list-title">Admin hub</div>
+                <div className="dc-list-sub">Pending approvals, providers, patients, appointments</div>
+              </div>
+            </div>
+            <div className="dc-chevron">›</div>
+          </Link>
+          <div style={{ color: 'var(--dc-muted)', fontSize: 12, fontWeight: 800 }}>
+            Pull down to refresh status.
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function ChangePassword() {
-  const [pw, setPw] = React.useState('');
+  const [form, setForm] = React.useState({ current: '', next: '', confirm: '', show: false });
   const [state, setState] = React.useState({ loading: false, error: '', ok: '' });
 
   async function submit(e) {
     e.preventDefault();
     setState({ loading: true, error: '', ok: '' });
+    if (form.next !== form.confirm) {
+      setState({ loading: false, error: 'Confirm password does not match.', ok: '' });
+      return;
+    }
     try {
-      await api.post(ApiPaths.changePassword, { new_password: pw });
+      // Backend currently only accepts `new_password`. UI shows current/confirm for parity with Flutter.
+      await api.post(ApiPaths.changePassword, { new_password: form.next });
       setState({ loading: false, error: '', ok: 'Password updated.' });
-      setPw('');
+      setForm({ current: '', next: '', confirm: '', show: false });
     } catch (err) {
-      setState({ loading: false, error: err?.response?.data?.message || 'Failed', ok: '' });
+      const server =
+        err?.response?.data?.message ||
+        err?.response?.data?.detail ||
+        (err?.response?.data?.errors ? JSON.stringify(err.response.data.errors) : '') ||
+        '';
+      setState({ loading: false, error: server || 'Failed', ok: '' });
     }
   }
 
   return (
-    <Card title="Change password">
-      <form className="dc-row" style={{ maxWidth: 520 }} onSubmit={submit}>
-        <input className="dc-input" type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="New password" required />
-        {state.error ? <div style={{ color: 'var(--dc-danger)', fontWeight: 800, fontSize: 13 }}>{state.error}</div> : null}
-        {state.ok ? <div style={{ color: 'var(--dc-primary)', fontWeight: 900, fontSize: 13 }}>{state.ok}</div> : null}
-        <button className="dc-btn dc-btn-primary" disabled={state.loading}>
-          {state.loading ? 'Updating…' : 'Update'}
-        </button>
-      </form>
-    </Card>
+    <div className="dc-row" style={{ gap: 14 }}>
+      <div className="dc-appbar">
+        <div className="dc-appbar-title">
+          <h2>Change password</h2>
+          <span style={{ opacity: 0.9, fontWeight: 900 }}>☰</span>
+        </div>
+      </div>
+
+      <div className="dc-card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="dc-hero" style={{ borderRadius: 0, padding: 18 }}>
+          <div style={{ fontWeight: 950, fontSize: 20 }}>Change Password</div>
+          <div style={{ opacity: 0.9, fontWeight: 800, fontSize: 13, marginTop: 6 }}>
+            Update your password to keep your account secure
+          </div>
+        </div>
+
+        <form className="dc-row" style={{ padding: 16 }} onSubmit={submit}>
+          <label className="dc-row" style={{ gap: 6 }}>
+            <div style={{ fontSize: 13, fontWeight: 900 }}>Current Password</div>
+            <input
+              className="dc-input"
+              type={form.show ? 'text' : 'password'}
+              value={form.current}
+              onChange={(e) => setForm((s) => ({ ...s, current: e.target.value }))}
+              placeholder="Current Password"
+            />
+          </label>
+
+          <label className="dc-row" style={{ gap: 6 }}>
+            <div style={{ fontSize: 13, fontWeight: 900 }}>New Password</div>
+            <input
+              className="dc-input"
+              type={form.show ? 'text' : 'password'}
+              value={form.next}
+              onChange={(e) => setForm((s) => ({ ...s, next: e.target.value }))}
+              placeholder="New Password"
+              required
+            />
+            <div style={{ color: 'var(--dc-muted)', fontSize: 12, fontWeight: 800 }}>Minimum 8 characters</div>
+          </label>
+
+          <label className="dc-row" style={{ gap: 6 }}>
+            <div style={{ fontSize: 13, fontWeight: 900 }}>Confirm Password</div>
+            <input
+              className="dc-input"
+              type={form.show ? 'text' : 'password'}
+              value={form.confirm}
+              onChange={(e) => setForm((s) => ({ ...s, confirm: e.target.value }))}
+              placeholder="Confirm New Password"
+              required
+            />
+          </label>
+
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 900 }}>
+            <input type="checkbox" checked={form.show} onChange={(e) => setForm((s) => ({ ...s, show: e.target.checked }))} />
+            Show passwords
+          </label>
+
+          <div
+            className="dc-card"
+            style={{
+              background: '#f7efe2',
+              borderColor: 'rgba(245, 158, 11, 0.25)',
+              padding: 14,
+            }}
+          >
+            <div style={{ fontWeight: 950, marginBottom: 8 }}>Password Requirements</div>
+            <div style={{ color: 'rgba(17,24,39,0.8)', fontWeight: 700, fontSize: 13, display: 'grid', gap: 6 }}>
+              <div>- At least 8 characters</div>
+              <div>- Contains a number</div>
+              <div>- Contains uppercase & lowercase</div>
+            </div>
+          </div>
+
+          {state.error ? <div style={{ color: 'var(--dc-danger)', fontWeight: 900, fontSize: 13 }}>{state.error}</div> : null}
+          {state.ok ? <div style={{ color: 'var(--dc-primary)', fontWeight: 950, fontSize: 13 }}>{state.ok}</div> : null}
+
+          <button className="dc-btn dc-btn-primary" disabled={state.loading} style={{ padding: 14, borderRadius: 16, fontWeight: 950 }}>
+            {state.loading ? 'Updating…' : 'Update Password'}
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }
 
 function ClientHub() {
-  return <Placeholder title="Client hub" tab={14} />;
+  const [tab, setTab] = React.useState('home'); // home | profile | plan
+  const me = useApiCall(() => api.get(ApiPaths.docOnCallMe).then((r) => r.data), []);
+  const user = me.data?.data?.user || me.data?.user || {};
+  const fullName = (user?.full_name || user?.username || 'User').toString();
+  const email = (user?.email || '').toString();
+
+  return (
+    <div className="dc-row" style={{ gap: 14 }}>
+      <div className="dc-appbar">
+        <div className="dc-appbar-title">
+          <h2>Client (home · profile · plan)</h2>
+          <span style={{ opacity: 0.9, fontWeight: 900 }}>☰</span>
+        </div>
+        <div className="dc-tabs" role="tablist" aria-label="Client hub tabs">
+          <button className="dc-tab" type="button" data-active={tab === 'home' ? 'true' : 'false'} onClick={() => setTab('home')}>
+            <span aria-hidden="true">🏠</span>
+            Home
+          </button>
+          <button className="dc-tab" type="button" data-active={tab === 'profile' ? 'true' : 'false'} onClick={() => setTab('profile')}>
+            <span aria-hidden="true">👤</span>
+            Profile
+          </button>
+          <button className="dc-tab" type="button" data-active={tab === 'plan' ? 'true' : 'false'} onClick={() => setTab('plan')}>
+            <span aria-hidden="true">💳</span>
+            Plan
+          </button>
+        </div>
+      </div>
+
+      {me.loading ? (
+        <div className="dc-card" style={{ color: 'var(--dc-muted)' }}>
+          Loading…
+        </div>
+      ) : me.error ? (
+        <div className="dc-card" style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>
+          {me.error}
+        </div>
+      ) : tab === 'profile' ? (
+        <div className="dc-row" style={{ gap: 14 }}>
+          <div className="dc-card" style={{ padding: 18, textAlign: 'center' }}>
+            <div className="dc-avatar" style={{ width: 92, height: 92, margin: '0 auto', fontSize: 34 }}>
+              👤
+            </div>
+            <div style={{ fontWeight: 950, fontSize: 22, marginTop: 10 }}>{fullName}</div>
+            <div style={{ color: 'var(--dc-muted)', fontWeight: 800, marginTop: 4 }}>{email}</div>
+          </div>
+
+          <div className="dc-list">
+            <div className="dc-list-row">
+              <div className="dc-list-left">
+                <div className="dc-avatar">🪪</div>
+                <div className="dc-list-text">
+                  <div className="dc-list-sub">Full Name</div>
+                  <div className="dc-list-title">{fullName}</div>
+                </div>
+              </div>
+            </div>
+            <div className="dc-list-row">
+              <div className="dc-list-left">
+                <div className="dc-avatar">✉️</div>
+                <div className="dc-list-text">
+                  <div className="dc-list-sub">Email</div>
+                  <div className="dc-list-title">{email || '—'}</div>
+                </div>
+              </div>
+            </div>
+            <div className="dc-list-row">
+              <div className="dc-list-left">
+                <div className="dc-avatar">📞</div>
+                <div className="dc-list-text">
+                  <div className="dc-list-sub">Phone</div>
+                  <div className="dc-list-title">—</div>
+                </div>
+              </div>
+            </div>
+            <div className="dc-list-row">
+              <div className="dc-list-left">
+                <div className="dc-avatar">📍</div>
+                <div className="dc-list-text">
+                  <div className="dc-list-sub">Address</div>
+                  <div className="dc-list-title">—</div>
+                </div>
+              </div>
+            </div>
+            <div className="dc-list-row">
+              <div className="dc-list-left">
+                <div className="dc-avatar">📅</div>
+                <div className="dc-list-text">
+                  <div className="dc-list-sub">Date of Birth</div>
+                  <div className="dc-list-title">—</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <button className="dc-btn dc-btn-primary" type="button" style={{ padding: 14, borderRadius: 16, fontWeight: 950 }}>
+            ✎ Edit Profile
+          </button>
+        </div>
+      ) : tab === 'plan' ? (
+        <div className="dc-row" style={{ gap: 14 }}>
+          <div className="dc-hero" style={{ padding: 18 }}>
+            <div style={{ opacity: 0.9, fontWeight: 900 }}>Current Plan</div>
+            <div style={{ fontWeight: 950, fontSize: 32, marginTop: 6 }}>Premium</div>
+            <div style={{ opacity: 0.9, fontWeight: 900, marginTop: 2 }}>$49/month</div>
+            <div style={{ marginTop: 10, display: 'grid', gap: 6, fontWeight: 900, opacity: 0.95 }}>
+              <div>✓ Up to 15 Appointments/month</div>
+              <div>✓ AI Assistant Access</div>
+            </div>
+            <div className="dc-chip" style={{ marginTop: 12, cursor: 'default', display: 'inline-flex' }} data-active="true">
+              Active until Dec 31, 2026
+            </div>
+          </div>
+
+          <div style={{ fontWeight: 950, fontSize: 18 }}>Available Plans</div>
+          <div className="dc-row" style={{ gap: 12 }}>
+            <div className="dc-card" style={{ padding: 18 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+                <div style={{ fontWeight: 950, fontSize: 18 }}>Basic</div>
+                <div style={{ color: 'var(--dc-muted)', fontWeight: 900 }}>Free</div>
+              </div>
+              <div style={{ fontWeight: 950, fontSize: 26, color: 'var(--dc-primary)', marginTop: 6 }}>$5/month</div>
+              <div style={{ marginTop: 10, display: 'grid', gap: 6, fontWeight: 900, color: 'rgba(17,24,39,0.8)' }}>
+                <div>✓ 1 Visit/month</div>
+                <div>✓ Basic Support</div>
+              </div>
+            </div>
+
+            <div className="dc-card" style={{ padding: 18 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+                <div style={{ fontWeight: 950, fontSize: 18 }}>Pro</div>
+                <div className="dc-chip" data-active="true" style={{ cursor: 'default' }}>
+                  Popular
+                </div>
+              </div>
+              <div style={{ fontWeight: 950, fontSize: 26, color: 'var(--dc-primary)', marginTop: 6 }}>$30/month</div>
+              <div style={{ marginTop: 10, display: 'grid', gap: 6, fontWeight: 900, color: 'rgba(17,24,39,0.8)' }}>
+                <div>✓ 3 Visits/month</div>
+                <div>✓ Priority Support</div>
+              </div>
+            </div>
+
+            <div className="dc-card" style={{ padding: 18 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+                <div style={{ fontWeight: 950, fontSize: 18 }}>Enterprise</div>
+                <div className="dc-chip" data-active="true" style={{ cursor: 'default' }}>
+                  Best Value
+                </div>
+              </div>
+              <div style={{ fontWeight: 950, fontSize: 26, color: 'var(--dc-primary)', marginTop: 6 }}>$75/month</div>
+              <div style={{ marginTop: 10, display: 'grid', gap: 6, fontWeight: 900, color: 'rgba(17,24,39,0.8)' }}>
+                <div>✓ 7 Visits/month</div>
+                <div>✓ 24/7 Support</div>
+                <div>✓ AI Features</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="dc-row" style={{ gap: 14 }}>
+          <div className="dc-hero" style={{ padding: 18 }}>
+            <div style={{ opacity: 0.9, fontWeight: 900 }}>Welcome</div>
+            <div style={{ fontWeight: 950, fontSize: 26, marginTop: 8 }}>{fullName}</div>
+            <div style={{ opacity: 0.9, fontWeight: 900, marginTop: 6 }}>Manage your plan, profile, and visits.</div>
+          </div>
+
+          <div className="dc-grid-2">
+            <Link className="dc-action" to="/shell/6">
+              🗓️ Appointments
+            </Link>
+            <Link className="dc-action" to="/shell/8">
+              ＋ Book appointment
+            </Link>
+            <Link className="dc-action" to="/shell/17">
+              🧠 Medical records
+            </Link>
+            <Link className="dc-action" to="/shell/13">
+              🔒 Change password
+            </Link>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function ProviderApply() {
@@ -470,54 +1364,97 @@ function AdminHubLite() {
   const patients = Array.isArray(data.patients) ? data.patients : [];
 
   return (
-    <div className="dc-row">
-      <Card title="Pending provider registrations" actions={<button className="dc-btn" onClick={() => window.location.reload()} disabled={busy}>Refresh</button>}>
-        {s.loading ? (
-          <div style={{ color: 'var(--dc-muted)' }}>Loading…</div>
-        ) : s.error ? (
-          <div style={{ color: 'var(--dc-danger)', fontWeight: 800 }}>{s.error}</div>
-        ) : providers.length === 0 ? (
-          <div style={{ color: 'var(--dc-muted)' }}>No pending providers.</div>
-        ) : (
-          <div className="dc-row">
-            {providers.slice(0, 50).map((p) => (
-              <div key={p.id} style={{ padding: 12, border: '1px solid var(--dc-border)', borderRadius: 14, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                <div>
-                  <div style={{ fontWeight: 800 }}>{p.full_name || p.name}</div>
-                  <div style={{ color: 'var(--dc-muted)', fontSize: 13 }}>{p.email}</div>
-                </div>
-                <button className="dc-btn dc-btn-primary" onClick={() => approve('provider', p.id)} disabled={busy}>
-                  Approve
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
+    <div className="dc-row" style={{ gap: 14 }}>
+      <div className="dc-appbar">
+        <div className="dc-appbar-title">
+          <h2>Admin (CRUD parity)</h2>
+          <span style={{ opacity: 0.9, fontWeight: 900 }}>☰</span>
+        </div>
+        <div className="dc-tabs" role="tablist" aria-label="Admin tabs">
+          <button className="dc-tab" type="button" data-active="true">
+            Roles
+          </button>
+          <button className="dc-tab" type="button" data-active="false">
+            Plans
+          </button>
+          <button className="dc-tab" type="button" data-active="false">
+            Specialities
+          </button>
+        </div>
+      </div>
 
-      <Card title="Pending patient registrations">
-        {s.loading ? (
-          <div style={{ color: 'var(--dc-muted)' }}>Loading…</div>
-        ) : s.error ? (
-          <div style={{ color: 'var(--dc-danger)', fontWeight: 800 }}>{s.error}</div>
-        ) : patients.length === 0 ? (
-          <div style={{ color: 'var(--dc-muted)' }}>No pending patients.</div>
-        ) : (
-          <div className="dc-row">
-            {patients.slice(0, 50).map((p) => (
-              <div key={p.id} style={{ padding: 12, border: '1px solid var(--dc-border)', borderRadius: 14, display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                <div>
-                  <div style={{ fontWeight: 800 }}>{p.name || p.full_name}</div>
-                  <div style={{ color: 'var(--dc-muted)', fontSize: 13 }}>{p.email}</div>
-                </div>
-                <button className="dc-btn dc-btn-primary" onClick={() => approve('patient', p.id)} disabled={busy}>
-                  Approve
-                </button>
-              </div>
-            ))}
+      <div className="dc-card" style={{ padding: 16, background: '#f6e7e7' }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <div className="dc-avatar">🛡️</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 950, fontSize: 18 }}>Providers approvals</div>
+            <div style={{ color: 'var(--dc-muted)', fontSize: 13, fontWeight: 800 }}>Pending registrations</div>
           </div>
-        )}
-      </Card>
+          <button className="dc-btn" onClick={() => window.location.reload()} disabled={busy} style={{ fontWeight: 950 }}>
+            ↻
+          </button>
+        </div>
+      </div>
+
+      {s.loading ? (
+        <div className="dc-card" style={{ color: 'var(--dc-muted)' }}>
+          Loading…
+        </div>
+      ) : s.error ? (
+        <div className="dc-card" style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>
+          {s.error}
+        </div>
+      ) : providers.length === 0 ? (
+        <div style={{ color: 'var(--dc-muted)', fontWeight: 800, paddingLeft: 6 }}>No pending registrations.</div>
+      ) : (
+        <div className="dc-list">
+          {providers.slice(0, 50).map((p) => (
+            <div className="dc-list-row" key={p.id}>
+              <div className="dc-list-left">
+                <div className="dc-avatar">👥</div>
+                <div className="dc-list-text">
+                  <div className="dc-list-title">{(p.full_name || p.name || 'Provider').toString()}</div>
+                  <div className="dc-list-sub">{(p.email || '').toString()}</div>
+                </div>
+              </div>
+              <button className="dc-btn dc-btn-primary" onClick={() => approve('provider', p.id)} disabled={busy} style={{ fontWeight: 950 }}>
+                Approve
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="dc-card" style={{ padding: 16, background: '#f6e7e7' }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <div className="dc-avatar">👤</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 950, fontSize: 18 }}>Patients approvals</div>
+            <div style={{ color: 'var(--dc-muted)', fontSize: 13, fontWeight: 800 }}>Pending registrations</div>
+          </div>
+        </div>
+      </div>
+
+      {s.loading ? null : s.error ? null : patients.length === 0 ? (
+        <div style={{ color: 'var(--dc-muted)', fontWeight: 800, paddingLeft: 6 }}>No pending registrations.</div>
+      ) : (
+        <div className="dc-list">
+          {patients.slice(0, 50).map((p) => (
+            <div className="dc-list-row" key={p.id}>
+              <div className="dc-list-left">
+                <div className="dc-avatar">👤</div>
+                <div className="dc-list-text">
+                  <div className="dc-list-title">{(p.name || p.full_name || 'Patient').toString()}</div>
+                  <div className="dc-list-sub">{(p.email || '').toString()}</div>
+                </div>
+              </div>
+              <button className="dc-btn dc-btn-primary" onClick={() => approve('patient', p.id)} disabled={busy} style={{ fontWeight: 950 }}>
+                Approve
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -17,6 +17,7 @@ function errMessage(err) {
 export function Login() {
   const nav = useNavigate();
   const [form, setForm] = React.useState({ email: '', password: '' });
+  const [portal, setPortal] = React.useState('patient');
   const [state, setState] = React.useState({ loading: false, error: '' });
 
   async function onSubmit(e) {
@@ -26,8 +27,8 @@ export function Login() {
       const payload = {
         email: form.email,
         password: form.password,
-        portal: 'patient',
-        role: 'patient',
+        portal,
+        role: portal,
       };
       const { data } = await api.post(ApiPaths.authLogin, payload);
       const token =
@@ -47,50 +48,97 @@ export function Login() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 18 }}>
-      <div className="dc-card" style={{ width: 420, maxWidth: '92vw' }}>
-        <div style={{ fontWeight: 900, fontSize: 20, marginBottom: 4 }}>Doctor On Call</div>
-        <div style={{ color: 'var(--dc-muted)', fontSize: 13, marginBottom: 16 }}>
-          Sign in to continue.
+    <div style={{ minHeight: '100vh', background: 'var(--dc-bg)' }}>
+      <div className="dc-hero" style={{ borderRadius: 0, padding: '22px 18px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div className="dc-brand-badge" style={{ background: 'rgba(255,255,255,0.2)' }}>
+            +
+          </div>
+          <div>
+            <div className="dc-hero-title">Doctor On Call</div>
+            <div className="dc-hero-sub">On-call care · Hospital finder</div>
+          </div>
         </div>
+      </div>
 
-        <form className="dc-row" onSubmit={onSubmit}>
-          <label className="dc-row" style={{ gap: 6 }}>
-            <div style={{ fontSize: 13, fontWeight: 700 }}>Email</div>
-            <input
-              className="dc-input"
-              value={form.email}
-              onChange={(e) => setForm((s) => ({ ...s, email: e.target.value }))}
-              autoComplete="email"
-              required
-            />
-          </label>
+      <div style={{ display: 'grid', placeItems: 'center', padding: 18 }}>
+        <div className="dc-card" style={{ width: 420, maxWidth: '92vw' }}>
+          <div style={{ fontWeight: 950, fontSize: 20, marginBottom: 8 }}>Sign in</div>
 
-          <label className="dc-row" style={{ gap: 6 }}>
-            <div style={{ fontSize: 13, fontWeight: 700 }}>Password</div>
-            <input
-              className="dc-input"
-              type="password"
-              value={form.password}
-              onChange={(e) => setForm((s) => ({ ...s, password: e.target.value }))}
-              autoComplete="current-password"
-              required
-            />
-          </label>
+          <div style={{ color: 'var(--dc-muted)', fontSize: 13, marginBottom: 10 }}>
+            Choose portal, then sign in to continue.
+          </div>
 
-          {state.error ? (
-            <div style={{ color: 'var(--dc-danger)', fontWeight: 700, fontSize: 13 }}>
-              {state.error}
-            </div>
-          ) : null}
+          <div className="dc-chip-row" style={{ marginBottom: 12 }}>
+            <button
+              type="button"
+              className="dc-chip"
+              data-active={portal === 'patient' ? 'true' : 'false'}
+              onClick={() => setPortal('patient')}
+            >
+              Patient
+            </button>
+            <button
+              type="button"
+              className="dc-chip"
+              data-active={portal === 'doctor' ? 'true' : 'false'}
+              onClick={() => setPortal('doctor')}
+            >
+              Doctor
+            </button>
+            <button
+              type="button"
+              className="dc-chip"
+              data-active={portal === 'admin' ? 'true' : 'false'}
+              onClick={() => setPortal('admin')}
+            >
+              Admin
+            </button>
+          </div>
 
-          <button className="dc-btn dc-btn-primary" disabled={state.loading}>
-            {state.loading ? 'Signing in…' : 'Sign in'}
-          </button>
-        </form>
+          <form className="dc-row" onSubmit={onSubmit}>
+            <label className="dc-row" style={{ gap: 6 }}>
+              <div style={{ fontSize: 13, fontWeight: 800 }}>Email</div>
+              <input
+                className="dc-input"
+                value={form.email}
+                onChange={(e) => setForm((s) => ({ ...s, email: e.target.value }))}
+                autoComplete="email"
+                placeholder="you@example.com"
+                required
+              />
+            </label>
 
-        <div style={{ marginTop: 12, fontSize: 13, color: 'var(--dc-muted)' }}>
-          No account? <Link to="/register" style={{ fontWeight: 800 }}>Create one</Link>
+            <label className="dc-row" style={{ gap: 6 }}>
+              <div style={{ fontSize: 13, fontWeight: 800 }}>Password</div>
+              <input
+                className="dc-input"
+                type="password"
+                value={form.password}
+                onChange={(e) => setForm((s) => ({ ...s, password: e.target.value }))}
+                autoComplete="current-password"
+                placeholder="••••••••"
+                required
+              />
+            </label>
+
+            {state.error ? (
+              <div style={{ color: 'var(--dc-danger)', fontWeight: 800, fontSize: 13 }}>
+                {state.error}
+              </div>
+            ) : null}
+
+            <button className="dc-btn dc-btn-primary" disabled={state.loading}>
+              {state.loading ? 'Signing in…' : 'Sign in'}
+            </button>
+          </form>
+
+          <div style={{ marginTop: 12, fontSize: 13, color: 'var(--dc-muted)' }}>
+            No account?{' '}
+            <Link to="/register" style={{ fontWeight: 900, color: 'var(--dc-primary)' }}>
+              Create one
+            </Link>
+          </div>
         </div>
       </div>
     </div>

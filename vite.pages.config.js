@@ -4,7 +4,9 @@ import react from '@vitejs/plugin-react';
 // Dedicated Vite build for GitHub Pages (static hosting).
 // Produces `dist/` and expects routing via hash to avoid 404s on deep links.
 export default defineConfig({
-  base: '/Doctorsoncall/',
+  // When using a custom domain (docsoncalls.com), the site is served from `/`.
+  // (Project Pages would use `/Doctorsoncall/`, but the custom domain is the target.)
+  base: '/',
   plugins: [react()],
   build: {
     outDir: 'dist',
@@ -15,7 +17,7 @@ export default defineConfig({
   },
   define: {
     'import.meta.env.VITE_ROUTER_MODE': JSON.stringify('hash'),
-    'import.meta.env.VITE_ROUTER_BASENAME': JSON.stringify('/Doctorsoncall'),
+    'import.meta.env.VITE_ROUTER_BASENAME': JSON.stringify('/'),
     // GitHub Pages is HTTPS, so the API must be HTTPS too (avoid Mixed Content).
     'import.meta.env.VITE_API_BASE_URL': JSON.stringify('https://api.docsoncalls.com/api/'),
   },
