@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/hospital.dart';
 import '../services/catalog_api.dart';
 import '../services/emergency_api_client.dart';
 import '../theme/app_theme.dart';
@@ -11,10 +12,15 @@ class HospitalDetailScreen extends StatelessWidget {
     super.key,
     required this.apiClient,
     required this.uuid,
+    /// Row from the hospitals list — used when detail API 404s (e.g. synthetic `h_lat_lng` id or Maps-only `place_id`).
+    this.listSnapshot,
   });
 
   final EmergencyApiClient apiClient;
   final String uuid;
+
+  /// Optional hospital row from list tap — avoids blank detail when server has no matching id.
+  final Hospital? listSnapshot;
 
   @override
   Widget build(BuildContext context) {
@@ -25,11 +31,12 @@ class HospitalDetailScreen extends StatelessWidget {
 
     return Scaffold(
       body: FutureBuilder<HospitalDetailResult>(
-        future: () async {
-          final r = await mapsApi.loadHospitalDetail(uuid);
-          if (r.needsSignIn) return await emrApi.loadHospitalDetail(uuid);
-          return r;
-        }(),
+        future: _loadHospitalDetail(
+          mapsApi: mapsApi,
+          emrApi: emrApi,
+          uuid: uuid,
+          listSnapshot: listSnapshot,
+        ),
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
             return const Center(
@@ -45,8 +52,11 @@ class HospitalDetailScreen extends StatelessWidget {
               onRetry: () {
                 Navigator.of(context).pushReplacement(
                   MaterialPageRoute<void>(
-                    builder: (_) =>
-                        HospitalDetailScreen(apiClient: apiClient, uuid: uuid),
+                    builder: (_) => HospitalDetailScreen(
+                      apiClient: apiClient,
+                      uuid: uuid,
+                      listSnapshot: listSnapshot,
+                    ),
                   ),
                 );
               },
@@ -291,4 +301,32 @@ class HospitalDetailScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Loads hospital detail: Maps API first, then EMR, then optional [listSnapshot] if APIs 404.
+Future<HospitalDetailResult> _loadHospitalDetail({
+  required CatalogApi mapsApi,
+  required CatalogApi emrApi,
+  required String uuid,
+  Hospital? listSnapshot,
+}) async {
+  // Synthetic id when list had no server pk — show row from list only.
+  if (uuid.startsWith('h_') && listSnapshot != null) {
+    return HospitalDetailResult(hospital: listSnapshot, raw: const {});
+  }
+
+  var r = await mapsApi.loadHospitalDetail(uuid);
+  if (!r.hasError && r.hospital != null) return r;
+  if (r.needsSignIn) {
+    return emrApi.loadHospitalDetail(uuid);
+  }
+
+  final r2 = await emrApi.loadHospitalDetail(uuid);
+  if (!r2.hasError && r2.hospital != null) return r2;
+
+  if (listSnapshot != null) {
+    return HospitalDetailResult(hospital: listSnapshot, raw: const {});
+  }
+
+  return r2.hasError ? r2 : r;
 }

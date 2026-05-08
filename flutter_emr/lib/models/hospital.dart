@@ -51,10 +51,12 @@ class Hospital {
   static Hospital fromJson(Map<String, dynamic> json) {
     final root = _unwrap(json);
 
+    // Prefer server primary keys first so `GET /api/hospitals/<id>/` matches Django EMR.
+    // `place_id` (Google/Maps) must not win when EMR also sends numeric `id`.
     var id =
-        root['place_id']?.toString() ??
-        root['uuid']?.toString() ??
         root['id']?.toString() ??
+        root['uuid']?.toString() ??
+        root['place_id']?.toString() ??
         '';
 
     double lat = _lat(root) ?? 0;

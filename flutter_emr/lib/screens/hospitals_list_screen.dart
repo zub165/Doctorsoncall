@@ -177,6 +177,7 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
                               builder: (_) => HospitalDetailScreen(
                                 apiClient: widget.apiClient,
                                 uuid: h.id,
+                                listSnapshot: h,
                               ),
                             ),
                           );
@@ -214,6 +215,7 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
                         builder: (_) => HospitalDetailScreen(
                           apiClient: widget.apiClient,
                           uuid: h.id,
+                          listSnapshot: h,
                         ),
                       ),
                     );
