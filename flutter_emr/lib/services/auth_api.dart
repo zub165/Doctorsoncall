@@ -160,6 +160,22 @@ class AuthApi {
     return res.data ?? <String, dynamic>{};
   }
 
+  Future<void> requestPasswordReset(String email) async {
+    final res = await _client.raw.post<Map<String, dynamic>>(
+      ApiPaths.authPasswordResetRequest,
+      data: {'email': email.trim()},
+      options: Options(contentType: Headers.jsonContentType),
+    );
+    final body = res.data;
+    if (body != null && body['status']?.toString() == 'error') {
+      throw DioException(
+        requestOptions: res.requestOptions,
+        response: res,
+        message: body['message']?.toString() ?? 'Reset request failed',
+      );
+    }
+  }
+
   DioException decorateError(dynamic e) {
     if (e is DioException) return e;
     return DioException(

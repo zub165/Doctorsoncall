@@ -4,6 +4,9 @@ from django.contrib.auth import authenticate
 from django.utils.dateparse import parse_date, parse_time
 from django.conf import settings
 from django.utils import timezone
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django.utils.encoding import force_bytes, force_str
+from django.contrib.auth.tokens import PasswordResetTokenGenerator
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
@@ -71,6 +74,9 @@ def _is_staffish(user):
 
 def _get_patient_for_user(user):
     return Patient.objects.filter(user=user).first()
+
+
+_pw_reset_tokens = PasswordResetTokenGenerator()
 
 
 def _extract_text_from_upload(uploaded_file, content_type_hint=""):
@@ -1702,6 +1708,110 @@ def change_password(request):
     request.user.set_password(pw)
     request.user.save()
     return _success(message="Password changed")
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def password_reset_request(request):
+    """
+    Send a password reset email.
+    Body: { email }
+    Always returns success to avoid user enumeration.
+    """
+    from django.core.mail import send_mail
+
+    email = str(request.data.get("email") or "").strip()
+    if not email:
+        return _error({"email": ["required"]})
+
+    user = User.objects.filter(email__iexact=email).first()
+    if user:
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = _pw_reset_tokens.make_token(user)
+        link = request.build_absolute_uri(f"/reset-password/{uid}/{token}/")
+        body = (
+            "You requested a password reset for Doctor On Call.\n\n"
+            f"Reset link: {link}\n\n"
+            "If you did not request this, ignore this email."
+        )
+        try:
+            send_mail(
+                subject="Reset your Doctor On Call password",
+                message=body,
+                from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
+                recipient_list=[email],
+                fail_silently=True,
+            )
+        except Exception:
+            pass
+
+    return _success(message="If that email exists, a reset link has been sent.")
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def password_reset_confirm(request):
+    """
+    Confirm password reset.
+    Body: { uid, token, new_password }
+    """
+    uid = str(request.data.get("uid") or "").strip()
+    token = str(request.data.get("token") or "").strip()
+    new_password = str(request.data.get("new_password") or "").strip()
+    if not uid or not token or not new_password:
+        return _error({"detail": ["uid, token, new_password required"]})
+    if len(new_password) < 8:
+        return _error({"new_password": ["min 8 chars"]})
+    try:
+        user_id = force_str(urlsafe_base64_decode(uid))
+        user = User.objects.filter(pk=user_id).first()
+    except Exception:
+        user = None
+    if not user or not _pw_reset_tokens.check_token(user, token):
+        return _error({"detail": ["Invalid or expired reset link"]}, status.HTTP_400_BAD_REQUEST)
+    user.set_password(new_password)
+    user.save()
+    return _success(message="Password reset OK")
+
+
+@api_view(["GET", "POST"])
+@permission_classes([AllowAny])
+def password_reset_page(request, uid, token):
+    """
+    Minimal HTML password reset page (for users coming from email).
+    """
+    if request.method == "GET":
+        html = f"""<!doctype html>
+<html>
+<head><meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Reset password</title></head>
+<body style="font-family: system-ui, -apple-system, sans-serif; padding: 24px; max-width: 520px; margin: 0 auto;">
+  <h2>Reset your password</h2>
+  <p>Enter a new password for your Doctor On Call account.</p>
+  <form method="post" style="display: grid; gap: 12px;">
+    <input type="password" name="new_password" placeholder="New password (min 8 chars)" minlength="8" required
+      style="padding: 12px; border: 1px solid #ddd; border-radius: 10px; font-size: 16px;" />
+    <button type="submit" style="padding: 12px; border-radius: 10px; border: 0; background: #d32f2f; color: white; font-weight: 700;">
+      Reset password
+    </button>
+  </form>
+</body>
+</html>"""
+        return Response(html, content_type="text/html")
+
+    pw = str(request.data.get("new_password") or request.POST.get("new_password") or "").strip()
+    if len(pw) < 8:
+        return Response("Password too short", status=400, content_type="text/plain")
+    try:
+        user_id = force_str(urlsafe_base64_decode(uid))
+        user = User.objects.filter(pk=user_id).first()
+    except Exception:
+        user = None
+    if not user or not _pw_reset_tokens.check_token(user, token):
+        return Response("Invalid or expired reset link", status=400, content_type="text/plain")
+    user.set_password(pw)
+    user.save()
+    return Response("Password reset OK. You can close this tab and sign in.", content_type="text/plain")
 
 
 @api_view(["GET"])

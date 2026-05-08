@@ -6,6 +6,7 @@ import '../services/auth_api.dart';
 import '../services/emergency_api_client.dart';
 import '../services/token_repository.dart';
 import '../theme/app_theme.dart';
+import '../services/user_api.dart';
 import 'app_shell.dart';
 import 'forgot_password_screen.dart';
 import 'register_screen.dart';
@@ -58,9 +59,13 @@ class _LoginScreenState extends State<LoginScreen> {
     FocusScope.of(context).unfocus();
     try {
       await _auth.login(_email.text.trim(), _password.text, portal: _portal);
+      final me = await UserApi(_client).fetchDoctorOnCallMe();
+      final role = (me['role'] ?? '').toString();
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute<void>(builder: (_) => AppShell(apiClient: _client)),
+        MaterialPageRoute<void>(
+          builder: (_) => AppShell(apiClient: _client, role: role),
+        ),
       );
     } on DioException catch (e) {
       final msg = e.response?.data is Map<String, dynamic>

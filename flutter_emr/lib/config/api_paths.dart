@@ -15,6 +15,8 @@ class ApiPaths {
   static const authRegister = 'auth/register/';
   static const authPasswordPolicy = 'auth/password-policy/';
   static const authLogout = 'auth/logout/';
+  static const authPasswordResetRequest = 'auth/password-reset/request/';
+  static const authPasswordResetConfirm = 'auth/password-reset/confirm/';
   static const changePassword = 'auth/change-password/';
 
   // --- Doctor On Call (role-based app layer) ---

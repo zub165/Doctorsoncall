@@ -48,6 +48,8 @@ urlpatterns = [
     path("appointments/all/", views.appointment_all),
     path("appointments/", views.appointment_create),
     path("auth/change-password/", views.change_password),
+    path("auth/password-reset/request/", views.password_reset_request),
+    path("auth/password-reset/confirm/", views.password_reset_confirm),
     path("integrations/replicate-token/", views.replicate_token_env),
     path("medical-records/ai-assist/", views.medical_records_ai_assist),
     path("medical-records/<str:record_id>/", views.medical_record_detail),
