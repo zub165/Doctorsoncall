@@ -30,6 +30,15 @@ MYWAITIME_UPSTREAM_API_BASE = os.environ.get(
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip()
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.1").strip()
 
+# Billing (Stripe) configuration.
+# Set these in production env:
+# - STRIPE_SECRET_KEY=sk_live_...
+# - STRIPE_WEBHOOK_SECRET=whsec_...
+# - FRONTEND_BASE_URL=https://docsoncalls.com
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "").strip()
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "").strip()
+FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "https://docsoncalls.com").strip()
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",

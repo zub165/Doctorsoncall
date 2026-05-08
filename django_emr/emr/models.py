@@ -389,3 +389,27 @@ class PatientShare(models.Model):
     class Meta:
         db_table = "patient_shares"
         ordering = ["-id"]
+
+
+class PatientSubscription(models.Model):
+    """
+    Stripe-backed plan subscription for a patient.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "pending"
+        ACTIVE = "active", "active"
+        CANCELED = "canceled", "canceled"
+        FAILED = "failed", "failed"
+
+    patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name="subscriptions")
+    plan = models.ForeignKey(Plan, on_delete=models.PROTECT, related_name="subscriptions")
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    stripe_customer_id = models.CharField(max_length=255, blank=True)
+    stripe_session_id = models.CharField(max_length=255, blank=True)
+    stripe_subscription_id = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "patient_subscriptions"
+        ordering = ["-id"]

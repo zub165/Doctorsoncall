@@ -98,6 +98,10 @@ class ApiPaths {
   // --- Patient self profile update ---
   static const patientMe = 'patient/me/';
 
+  // --- Billing ---
+  static const billingStatus = 'billing/status/';
+  static const billingCheckout = 'billing/checkout/';
+
   /// Alias for [feedbackSubmit] (legacy call sites).
   static const feedback = feedbackSubmit;
 }

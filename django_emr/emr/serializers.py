@@ -20,6 +20,7 @@ from .models import (
     Timezone,
     PatientDocument,
     PatientShare,
+    PatientSubscription,
 )
 
 
@@ -243,6 +244,24 @@ class PatientShareSerializer(serializers.ModelSerializer):
             "created_at",
             "provider",
             "patient",
+        )
+
+
+class PatientSubscriptionSerializer(serializers.ModelSerializer):
+    plan = PlanSerializer(read_only=True)
+
+    class Meta:
+        model = PatientSubscription
+        fields = (
+            "id",
+            "patient_id",
+            "plan_id",
+            "status",
+            "stripe_customer_id",
+            "stripe_session_id",
+            "stripe_subscription_id",
+            "created_at",
+            "plan",
         )
 
     def get_file_url(self, obj):

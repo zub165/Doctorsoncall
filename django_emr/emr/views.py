@@ -39,6 +39,7 @@ from .models import (
     Timezone,
     PatientDocument,
     PatientShare,
+    PatientSubscription,
 )
 from .serializers import (
     AppointmentSerializer,
@@ -60,6 +61,7 @@ from .serializers import (
     TimezoneSerializer,
     PatientDocumentSerializer,
     PatientShareSerializer,
+    PatientSubscriptionSerializer,
 )
 
 
@@ -2129,3 +2131,131 @@ def patient_me_update(request):
         obj = ser.save()
         return _success({"patient": PatientSerializer(obj).data}, message="Updated")
     return _error(ser.errors)
+
+
+@api_view(["GET"])
+@authentication_classes([TokenAuthentication, SessionAuthentication])
+@permission_classes([IsAuthenticated])
+def billing_status(request):
+    """Return active subscription (if any) for current patient."""
+    p = Patient.objects.filter(user=request.user).first()
+    if not p:
+        return _success({"active": None})
+    sub = (
+        PatientSubscription.objects.filter(patient=p, status=PatientSubscription.Status.ACTIVE)
+        .select_related("plan")
+        .first()
+    )
+    return _success({"active": PatientSubscriptionSerializer(sub).data if sub else None})
+
+
+@api_view(["POST"])
+@authentication_classes([TokenAuthentication, SessionAuthentication])
+@permission_classes([IsAuthenticated])
+def billing_checkout(request):
+    """
+    Create a Stripe Checkout session for a plan.
+    Body: { plan_id }
+    Returns: { url }
+    """
+    import stripe
+
+    if not getattr(settings, "STRIPE_SECRET_KEY", ""):
+        return _error({"billing": ["Stripe is not configured on server."]}, status.HTTP_501_NOT_IMPLEMENTED)
+
+    p = Patient.objects.filter(user=request.user).first()
+    if not p:
+        return _error({"patient": ["No patient profile"]}, status.HTTP_404_NOT_FOUND)
+    try:
+        plan_id = int(request.data.get("plan_id"))
+    except (TypeError, ValueError):
+        return _error({"plan_id": ["invalid"]})
+    plan = Plan.objects.filter(id=plan_id).first()
+    if not plan:
+        return _error({"plan_id": ["not found"]}, status.HTTP_404_NOT_FOUND)
+
+    # Amount handling: plan.price is stored as string (legacy). Assume USD, monthly unless duration says otherwise.
+    try:
+        amount_cents = int(round(float(str(plan.price).replace("$", "").strip()) * 100))
+    except Exception:
+        return _error({"price": ["Plan price invalid. Use numeric like 49 or 49.00"]})
+    if amount_cents <= 0:
+        return _error({"price": ["Plan price must be > 0"]})
+
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+    frontend = (getattr(settings, "FRONTEND_BASE_URL", "") or "").rstrip("/") or "https://docsoncalls.com"
+    success_url = frontend + "/?billing=success"
+    cancel_url = frontend + "/?billing=cancel"
+
+    # Customer identity: use patient email when available.
+    customer_email = (p.email or "").strip() or (request.user.email or "").strip()
+
+    session = stripe.checkout.Session.create(
+        mode="payment",
+        success_url=success_url,
+        cancel_url=cancel_url,
+        customer_email=customer_email or None,
+        line_items=[
+            {
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {"name": f"DocOnCalls plan: {plan.plan_name}"},
+                    "unit_amount": amount_cents,
+                },
+                "quantity": 1,
+            }
+        ],
+        metadata={
+            "patient_id": str(p.id),
+            "plan_id": str(plan.id),
+        },
+    )
+
+    PatientSubscription.objects.create(
+        patient=p,
+        plan=plan,
+        status=PatientSubscription.Status.PENDING,
+        stripe_session_id=session.id,
+    )
+    return _success({"url": session.url, "session_id": session.id}, message="Checkout created")
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def billing_webhook(request):
+    """Stripe webhook: marks subscription active after successful checkout."""
+    import stripe
+
+    secret = getattr(settings, "STRIPE_WEBHOOK_SECRET", "").strip()
+    if not secret:
+        return Response({"ok": False, "message": "Webhook secret not configured"}, status=200)
+
+    payload = request.body
+    sig_header = request.headers.get("Stripe-Signature", "")
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, secret)
+    except Exception:
+        return Response({"ok": False}, status=400)
+
+    etype = event.get("type")
+    if etype == "checkout.session.completed":
+        obj = event["data"]["object"]
+        session_id = obj.get("id", "")
+        md = obj.get("metadata") or {}
+        patient_id = md.get("patient_id")
+        plan_id = md.get("plan_id")
+        sub = PatientSubscription.objects.filter(stripe_session_id=session_id).first()
+        if sub:
+            sub.status = PatientSubscription.Status.ACTIVE
+            sub.stripe_customer_id = obj.get("customer") or sub.stripe_customer_id
+            sub.save(update_fields=["status", "stripe_customer_id"])
+        elif patient_id and plan_id:
+            PatientSubscription.objects.create(
+                patient_id=patient_id,
+                plan_id=plan_id,
+                status=PatientSubscription.Status.ACTIVE,
+                stripe_session_id=session_id,
+                stripe_customer_id=obj.get("customer") or "",
+            )
+
+    return Response({"ok": True}, status=200)

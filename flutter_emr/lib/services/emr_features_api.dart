@@ -165,6 +165,20 @@ class EmrFeaturesApi {
     return r.data;
   }
 
+  Future<dynamic> billingStatus() async {
+    final r = await _c.raw.get<dynamic>(ApiPaths.billingStatus);
+    return r.data;
+  }
+
+  Future<dynamic> billingCheckout(int planId) async {
+    final r = await _c.raw.post<dynamic>(
+      ApiPaths.billingCheckout,
+      data: {'plan_id': planId},
+      options: Options(contentType: Headers.jsonContentType),
+    );
+    return r.data;
+  }
+
   Future<dynamic> replicateToken() async {
     final r = await _c.raw.get<dynamic>(ApiPaths.replicateToken);
     return r.data;

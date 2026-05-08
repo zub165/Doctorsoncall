@@ -5,6 +5,7 @@ import '../services/emergency_api_client.dart';
 import '../services/emr_features_api.dart';
 import '../services/user_api.dart';
 import '../theme/app_theme.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class ClientHubScreen extends StatelessWidget {
   const ClientHubScreen({
@@ -222,108 +223,7 @@ class ClientHubScreen extends StatelessWidget {
   }
 
   Widget _buildPlanTab(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Card(
-          elevation: 4,
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFFD32F2F), Color(0xFFEF5350)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Current Plan',
-                  style: TextStyle(color: Colors.white70, fontSize: 14),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Premium',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                const Text(
-                  '\$49/month',
-                  style: TextStyle(color: Colors.white70),
-                ),
-                const SizedBox(height: 16),
-                const Row(
-                  children: [
-                    Icon(Icons.check_circle, color: Colors.white, size: 18),
-                    SizedBox(width: 8),
-                    Text(
-                      'Up to 15 Appointments/month',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                const Row(
-                  children: [
-                    Icon(Icons.check_circle, color: Colors.white, size: 18),
-                    SizedBox(width: 8),
-                    Text(
-                      'AI Assistant Access',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Text(
-                    'Active until Dec 31, 2026',
-                    style: TextStyle(color: Colors.white, fontSize: 12),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 24),
-        Text(
-          'Available Plans',
-          style: Theme.of(
-            context,
-          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 12),
-        _buildPlanCard(context, 'Basic', '\$5/month', 'Free', [
-          '1 Visit/month',
-          'Basic Support',
-        ]),
-        const SizedBox(height: 12),
-        _buildPlanCard(context, 'Pro', '\$30/month', 'Popular', [
-          '3 Visits/month',
-          'Priority Support',
-        ]),
-        const SizedBox(height: 12),
-        _buildPlanCard(context, 'Enterprise', '\$75/month', 'Best Value', [
-          '7 Visits/month',
-          '24/7 Support',
-          'AI Features',
-        ]),
-      ],
-    );
+    return _PlanTab(apiClient: apiClient);
   }
 
   Widget _buildSectionCard(
@@ -369,75 +269,7 @@ class ClientHubScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildPlanCard(
-    BuildContext context,
-    String name,
-    String price,
-    String badge,
-    List<String> features,
-  ) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  name,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2,
-                  ),
-                  decoration: badge == 'Popular' || badge == 'Best Value'
-                      ? const BoxDecoration(
-                          color: Color(0xFFD32F2F),
-                          borderRadius: BorderRadius.all(Radius.circular(12)),
-                        )
-                      : null,
-                  child: Text(
-                    badge,
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: badge != 'Free' ? Colors.white : Colors.grey,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            Text(
-              price,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFFD32F2F),
-              ),
-            ),
-            const SizedBox(height: 8),
-            ...features.map(
-              (f) => Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Row(
-                  children: [
-                    const Icon(Icons.check, size: 16, color: Color(0xFF4CAF50)),
-                    const SizedBox(width: 8),
-                    Text(f, style: const TextStyle(fontSize: 13)),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  // (deprecated) old static plan card removed in favor of live billing checkout.
 }
 
 class _EditPatientProfileScreen extends StatefulWidget {
@@ -684,6 +516,275 @@ class _InvoicesScreenState extends State<_InvoicesScreen> {
                     ],
                   ),
                 ),
+    );
+  }
+}
+
+class _PlanTab extends StatefulWidget {
+  const _PlanTab({required this.apiClient});
+
+  final EmergencyApiClient apiClient;
+
+  @override
+  State<_PlanTab> createState() => _PlanTabState();
+}
+
+class _PlanTabState extends State<_PlanTab> {
+  bool _loading = true;
+  String? _error;
+  Map<String, dynamic>? _active;
+  List<Map<String, dynamic>> _plans = const [];
+  bool _busy = false;
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final api = EmrFeaturesApi(widget.apiClient);
+      final plansRaw = await api.plans();
+      final billingRaw = await api.billingStatus();
+
+      List<Map<String, dynamic>> plans = [];
+      if (plansRaw is Map && plansRaw['results'] is List) {
+        plans = (plansRaw['results'] as List)
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      } else if (plansRaw is List) {
+        plans = plansRaw
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      }
+
+      Map<String, dynamic>? active;
+      if (billingRaw is Map) {
+        final root = Map<String, dynamic>.from(billingRaw);
+        final inner =
+            root['data'] is Map ? Map<String, dynamic>.from(root['data'] as Map) : root;
+        final a = inner['active'];
+        if (a is Map) active = Map<String, dynamic>.from(a);
+      }
+
+      setState(() {
+        _plans = plans;
+        _active = active;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _subscribe(int planId) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final res = await EmrFeaturesApi(widget.apiClient).billingCheckout(planId);
+      final body = res is Map ? Map<String, dynamic>.from(res) : <String, dynamic>{};
+      final inner =
+          body['data'] is Map ? Map<String, dynamic>.from(body['data'] as Map) : body;
+      final url = (inner['url'] ?? inner['checkout_url'] ?? '').toString();
+      if (url.isEmpty) {
+        throw Exception('Checkout URL missing (Stripe not configured).');
+      }
+      final uri = Uri.tryParse(url);
+      if (uri == null) throw Exception('Invalid checkout URL');
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!mounted) return;
+      setState(() => _busy = false);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _error = e.toString();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.primary),
+      );
+    }
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.error_outline, size: 44, color: Colors.red),
+              const SizedBox(height: 10),
+              const Text('Plans unavailable'),
+              const SizedBox(height: 8),
+              Text(_error!, style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: _load,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final activePlan = _active?['plan'] is Map
+        ? Map<String, dynamic>.from(_active!['plan'] as Map)
+        : null;
+    final activeName = (activePlan?['plan_name'] ?? '').toString();
+    final activeStatus = (_active?['status'] ?? '').toString();
+
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        children: [
+          Card(
+            elevation: 4,
+            child: Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFD32F2F), Color(0xFFEF5350)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Current Plan',
+                    style: TextStyle(color: Colors.white70, fontSize: 14),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    activeName.isEmpty ? 'None' : activeName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    activeStatus.isEmpty ? 'Not subscribed' : activeStatus,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Text(
+                'Payments are handled securely by Stripe. Your card details never touch our servers.',
+                style: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'Available Plans',
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 12),
+          if (_plans.isEmpty)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'No plans configured.',
+                  style: TextStyle(color: Colors.grey.shade700),
+                ),
+              ),
+            )
+          else
+            ..._plans.map((p) {
+              final id = int.tryParse('${p['id'] ?? ''}');
+              final name = (p['plan_name'] ?? p['name'] ?? 'Plan').toString();
+              final price = (p['price'] ?? '').toString();
+              final duration = (p['duration'] ?? '').toString();
+              final appts = (p['number_appointments'] ?? '').toString();
+              final ai = (p['ai_bot'] ?? '').toString();
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 12),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              name,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          Text(
+                            price.isEmpty ? '' : '\$$price',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w900,
+                              color: Color(0xFFD32F2F),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        [
+                          if (duration.isNotEmpty) duration,
+                          if (appts.isNotEmpty) '$appts appointments',
+                          if (ai.isNotEmpty) 'AI: $ai',
+                        ].join(' • '),
+                        style: TextStyle(color: Colors.grey.shade700),
+                      ),
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                        onPressed: (_busy || id == null) ? null : () => _subscribe(id),
+                        icon: const Icon(Icons.lock_outline),
+                        label: Text(_busy ? 'Please wait…' : 'Subscribe'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+        ],
+      ),
     );
   }
 }
