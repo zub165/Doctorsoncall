@@ -4,7 +4,6 @@ import '../services/catalog_api.dart';
 import '../services/emergency_api_client.dart';
 import '../theme/app_theme.dart';
 import '../widgets/api_access_placeholder.dart';
-import 'osm_tools_screen.dart';
 
 /// **`GET /api/hospitals/<uuid>/`**
 class HospitalDetailScreen extends StatelessWidget {
@@ -19,13 +18,18 @@ class HospitalDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final api = CatalogApi(
+    final mapsApi = CatalogApi(
       EmergencyApiClient.maps(tokenRepository: apiClient.tokenRepo),
     );
+    final emrApi = CatalogApi(apiClient);
 
     return Scaffold(
       body: FutureBuilder<HospitalDetailResult>(
-        future: api.loadHospitalDetail(uuid),
+        future: () async {
+          final r = await mapsApi.loadHospitalDetail(uuid);
+          if (r.needsSignIn) return await emrApi.loadHospitalDetail(uuid);
+          return r;
+        }(),
         builder: (context, snap) {
           if (snap.connectionState == ConnectionState.waiting) {
             return const Center(
@@ -33,31 +37,6 @@ class HospitalDetailScreen extends StatelessWidget {
             );
           }
           final result = snap.data!;
-          if (result.needsSignIn) {
-            return ApiAccessPlaceholder(
-              title: 'Sign in required',
-              message:
-                  'Your session cannot load this hospital without an account.',
-              requireSignIn: true,
-              secondaryActionLabel: 'Search hospitals (guest)',
-              secondaryActionIcon: Icons.public_rounded,
-              onSecondaryAction: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => OsmToolsScreen(apiClient: apiClient),
-                  ),
-                );
-              },
-              onRetry: () {
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute<void>(
-                    builder: (_) =>
-                        HospitalDetailScreen(apiClient: apiClient, uuid: uuid),
-                  ),
-                );
-              },
-            );
-          }
           if (result.hasError || result.hospital == null) {
             return ApiAccessPlaceholder(
               title: 'Could not load hospital',

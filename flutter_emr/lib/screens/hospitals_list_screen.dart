@@ -23,6 +23,7 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
   late final EmergencyApiClient _mapsClient =
       EmergencyApiClient.maps(tokenRepository: widget.apiClient.tokenRepo);
   late final CatalogApi _api = CatalogApi(_mapsClient);
+  late final CatalogApi _emrApi = CatalogApi(widget.apiClient);
   late Future<HospitalsListResult> _future;
 
   @override
@@ -116,31 +117,72 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
                 }
                 final result = snap.data!;
                 if (result.needsSignIn) {
-                  return ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    children: [
-                      SizedBox(
-                        height: MediaQuery.of(context).size.height * 0.15,
-                      ),
-                      ApiAccessPlaceholder(
-                        title: 'Sign in to view hospitals',
-                        message:
-                            'This server requires an account to list hospitals. Sign in, or continue as a guest on other tabs that allow it.',
-                        requireSignIn: true,
-                        onRetry: _reload,
-                        showSignInAction: true,
-                        secondaryActionLabel: 'Search hospitals (guest)',
-                        secondaryActionIcon: Icons.public_rounded,
-                        onSecondaryAction: () {
-                          Navigator.of(context).push(
+                  // Maps API can require auth; fallback to EMR hospitals list (public).
+                  return FutureBuilder<HospitalsListResult>(
+                    future: _emrApi.loadHospitalsList(),
+                    builder: (context, fb) {
+                      if (fb.connectionState != ConnectionState.done) {
+                        return ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: const [
+                            SizedBox(height: 120),
+                            Center(
+                              child: CircularProgressIndicator(
+                                color: AppColors.primary,
+                              ),
+                            ),
+                          ],
+                        );
+                      }
+                      final emr = fb.data;
+                      if (emr == null || emr.hasError) {
+                        return ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          children: [
+                            SizedBox(
+                              height: MediaQuery.of(context).size.height * 0.15,
+                            ),
+                            ApiAccessPlaceholder(
+                              title: 'Hospitals unavailable',
+                              message:
+                                  'Maps API refused guest access and EMR fallback failed.',
+                              requireSignIn: false,
+                              onRetry: _reload,
+                              showSignInAction: false,
+                              secondaryActionLabel: 'Search hospitals (guest)',
+                              secondaryActionIcon: Icons.public_rounded,
+                              onSecondaryAction: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => OsmToolsScreen(
+                                      apiClient: widget.apiClient,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+                        );
+                      }
+
+                      return _HospitalsListBody(
+                        theme: theme,
+                        result: emr,
+                        filter: _filter,
+                        searchQuery: _searchQuery,
+                        onReload: _reload,
+                        onTapHospital: (h) {
+                          Navigator.of(context).push<void>(
                             MaterialPageRoute<void>(
-                              builder: (_) =>
-                                  OsmToolsScreen(apiClient: widget.apiClient),
+                              builder: (_) => HospitalDetailScreen(
+                                apiClient: widget.apiClient,
+                                uuid: h.id,
+                              ),
                             ),
                           );
                         },
-                      ),
-                    ],
+                      );
+                    },
                   );
                 }
                 if (result.hasError) {
@@ -160,139 +202,20 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
                     ],
                   );
                 }
-
-                var rows = result.hospitals;
-                // Type filter
-                if (_filter == 1) {
-                  rows = rows
-                      .where(
-                        (h) =>
-                            h.facilityType.toLowerCase().contains('emergency') ||
-                            h.facilityType.toLowerCase().contains('er'),
-                      )
-                      .toList();
-                } else if (_filter == 2) {
-                  rows = rows
-                      .where(
-                        (h) => h.facilityType.toLowerCase().contains('urgent'),
-                      )
-                      .toList();
-                }
-
-                if (_searchQuery.isNotEmpty) {
-                  rows = rows.where((h) {
-                    final bucket =
-                        '${h.name} ${h.address} ${h.facilityType} ${h.phoneNumber ?? ''}'
-                            .toLowerCase();
-                    return bucket.contains(_searchQuery);
-                  }).toList();
-                }
-
-                final openCount = rows.where((h) => h.isOpen).length;
-
-                if (rows.isEmpty) {
-                  return ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.only(bottom: 24),
-                    children: [
-                      _HospitalMapPreview(hospitals: result.hospitals),
-                      SizedBox(
-                        height: MediaQuery.of(context).size.height * 0.12,
-                      ),
-                      Icon(
-                        Icons.local_hospital_outlined,
-                        size: 72,
-                        color: Colors.grey.shade400,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No hospitals match',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
+                return _HospitalsListBody(
+                  theme: theme,
+                  result: result,
+                  filter: _filter,
+                  searchQuery: _searchQuery,
+                  onReload: _reload,
+                  onTapHospital: (h) {
+                    Navigator.of(context).push<void>(
+                      MaterialPageRoute<void>(
+                        builder: (_) => HospitalDetailScreen(
+                          apiClient: widget.apiClient,
+                          uuid: h.id,
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        result.hospitals.isEmpty
-                            ? 'The list is empty or your filters excluded everything.'
-                            : 'Try a different search.',
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                    ],
-                  );
-                }
-
-                return ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                  itemCount: rows.length + 2,
-                  itemBuilder: (context, i) {
-                    if (i == 0) {
-                      return _HospitalMapPreview(hospitals: result.hospitals);
-                    }
-                    if (i == 1) {
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 10, top: 6),
-                        child: Row(
-                          children: [
-                            Text(
-                              '${rows.length} Results',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.green.shade700.withValues(
-                                  alpha: 0.08,
-                                ),
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.check_circle_rounded,
-                                    size: 14,
-                                    color: Colors.green.shade700,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    '$openCount Open',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.green.shade700,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-                    final h = rows[i - 2];
-                    return _HospitalCard(
-                      hospital: h,
-                      onTap: () {
-                        Navigator.of(context).push<void>(
-                          MaterialPageRoute<void>(
-                            builder: (_) => HospitalDetailScreen(
-                              apiClient: widget.apiClient,
-                              uuid: h.id,
-                            ),
-                          ),
-                        );
-                      },
                     );
                   },
                 );
@@ -301,6 +224,154 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _HospitalsListBody extends StatelessWidget {
+  const _HospitalsListBody({
+    required this.theme,
+    required this.result,
+    required this.filter,
+    required this.searchQuery,
+    required this.onReload,
+    required this.onTapHospital,
+  });
+
+  final ThemeData theme;
+  final HospitalsListResult result;
+  final int filter;
+  final String searchQuery;
+  final VoidCallback onReload;
+  final void Function(Hospital h) onTapHospital;
+
+  @override
+  Widget build(BuildContext context) {
+    var rows = result.hospitals;
+
+    if (filter == 1) {
+      rows = rows
+          .where(
+            (h) =>
+                h.facilityType.toLowerCase().contains('emergency') ||
+                h.facilityType.toLowerCase().contains('er'),
+          )
+          .toList();
+    } else if (filter == 2) {
+      rows = rows
+          .where((h) => h.facilityType.toLowerCase().contains('urgent'))
+          .toList();
+    }
+
+    if (searchQuery.isNotEmpty) {
+      rows = rows.where((h) {
+        final bucket =
+            '${h.name} ${h.address} ${h.facilityType} ${h.phoneNumber ?? ''}'
+                .toLowerCase();
+        return bucket.contains(searchQuery);
+      }).toList();
+    }
+
+    final openCount = rows.where((h) => h.isOpen).length;
+
+    if (rows.isEmpty) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.only(bottom: 24),
+        children: [
+          _HospitalMapPreview(hospitals: result.hospitals),
+          SizedBox(height: MediaQuery.of(context).size.height * 0.12),
+          Icon(
+            Icons.local_hospital_outlined,
+            size: 72,
+            color: Colors.grey.shade400,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'No hospitals match',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            result.hospitals.isEmpty
+                ? 'The list is empty or your filters excluded everything.'
+                : 'Try a different search.',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Center(
+            child: OutlinedButton.icon(
+              onPressed: onReload,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Reload'),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      itemCount: rows.length + 2,
+      itemBuilder: (context, i) {
+        if (i == 0) return _HospitalMapPreview(hospitals: result.hospitals);
+        if (i == 1) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10, top: 6),
+            child: Row(
+              children: [
+                Text(
+                  '${rows.length} Results',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade700.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.check_circle_rounded,
+                        size: 14,
+                        color: Colors.green.shade700,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '$openCount Open',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.green.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+        final h = rows[i - 2];
+        return _HospitalCard(
+          hospital: h,
+          onTap: () => onTapHospital(h),
+        );
+      },
     );
   }
 }
