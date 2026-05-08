@@ -16,8 +16,8 @@ export default defineConfig({
   define: {
     'import.meta.env.VITE_ROUTER_MODE': JSON.stringify('hash'),
     'import.meta.env.VITE_ROUTER_BASENAME': JSON.stringify('/Doctorsoncall'),
-    // Default to the Django EMR API on your VPS. Override in workflow/env if needed.
-    'import.meta.env.VITE_API_BASE_URL': JSON.stringify('http://208.109.215.53:8012/api/'),
+    // GitHub Pages is HTTPS, so the API must be HTTPS too (avoid Mixed Content).
+    'import.meta.env.VITE_API_BASE_URL': JSON.stringify('https://api.docsoncalls.com/api/'),
   },
 });
 
