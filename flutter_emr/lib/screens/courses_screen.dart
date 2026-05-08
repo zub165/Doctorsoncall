@@ -123,7 +123,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Column(
         children: [
           Container(
@@ -135,6 +135,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
               tabs: [
                 Tab(icon: Icon(Icons.menu_book_outlined), text: 'Education'),
                 Tab(icon: Icon(Icons.school_outlined), text: 'Courses'),
+                Tab(icon: Icon(Icons.fact_check_outlined), text: 'Maintenance'),
               ],
             ),
           ),
@@ -143,6 +144,7 @@ class _CoursesScreenState extends State<CoursesScreen> {
               children: [
                 _buildEducation(),
                 _buildCourses(),
+                _buildMaintenance(context),
               ],
             ),
           ),
@@ -393,10 +395,334 @@ class _CoursesScreenState extends State<CoursesScreen> {
       ),
     );
   }
+
+  Widget _buildMaintenance(BuildContext context) {
+    const ages = <(String, String)>[
+      ('0–2', 'Infants & toddlers'),
+      ('3–6', 'Preschool'),
+      ('7–12', 'School age'),
+      ('13–18', 'Teens'),
+      ('19–39', 'Adults'),
+      ('40–64', 'Midlife'),
+      ('65+', 'Seniors'),
+    ];
+    String selected = '19–39';
+
+    return StatefulBuilder(
+      builder: (context, setLocal) {
+        final plan = _maintenancePlan(selected);
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Text(
+              'Annual maintenance checklist',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Age-wise preventive care, vaccines, and exercise/PT/OT guidance.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.grey.shade700,
+                  ),
+            ),
+            const SizedBox(height: 14),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final a in ages)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 10),
+                      child: ChoiceChip(
+                        label: Text(a.$1),
+                        selected: selected == a.$1,
+                        onSelected: (_) => setLocal(() => selected = a.$1),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _sectionCard(
+              context,
+              title: 'Preventive care',
+              icon: Icons.health_and_safety_outlined,
+              bullets: plan.preventive,
+              links: const [
+                (
+                  'USPSTF recommendations',
+                  'https://www.uspreventiveservicestaskforce.org/uspstf/recommendation-topics'
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _sectionCard(
+              context,
+              title: 'Vaccines',
+              icon: Icons.vaccines_outlined,
+              bullets: plan.vaccines,
+              links: const [
+                ('CDC immunization schedule', 'https://www.cdc.gov/vaccines/schedules/'),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _exerciseCard(context, title: 'Exercise (home)', items: plan.exercises),
+            const SizedBox(height: 12),
+            _sectionCard(
+              context,
+              title: 'PT / OT (when to consider)',
+              icon: Icons.accessibility_new_outlined,
+              bullets: plan.ptot,
+              links: const [
+                ('ChoosePT (APTA)', 'https://www.choosept.com/'),
+                ('AOTA (OT for consumers)', 'https://www.aota.org/consumers'),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Card(
+              color: Colors.amber.withValues(alpha: 0.10),
+              child: const Padding(
+                padding: EdgeInsets.all(14),
+                child: Text(
+                  'Note: This is general guidance, not medical advice. Always follow your clinician’s recommendations.',
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _sectionCard(
+    BuildContext context, {
+    required String title,
+    required IconData icon,
+    required List<String> bullets,
+    List<(String, String)> links = const [],
+  }) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: AppColors.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            for (final b in bullets)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Text('• $b'),
+              ),
+            if (links.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  for (final l in links)
+                    OutlinedButton.icon(
+                      onPressed: () => _openUrl(l.$2),
+                      icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                      label: Text(l.$1),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _exerciseCard(
+    BuildContext context, {
+    required String title,
+    required List<_ExerciseTip> items,
+  }) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.fitness_center_outlined, color: AppColors.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            for (final it in items)
+              Card(
+                elevation: 0,
+                color: Colors.grey.shade50,
+                margin: const EdgeInsets.only(bottom: 10),
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: AppColors.primary.withValues(alpha: 0.10),
+                    child: Icon(it.icon, color: AppColors.primary),
+                  ),
+                  title: Text(it.title, style: const TextStyle(fontWeight: FontWeight.w700)),
+                  subtitle: Text(it.body),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  _MaintenancePlan _maintenancePlan(String ageKey) {
+    switch (ageKey) {
+      case '0–2':
+        return const _MaintenancePlan(
+          preventive: [
+            'Well-child visits and growth/development screening.',
+            'Sleep safety and nutrition guidance.',
+            'Dental: first dentist visit by 1 year (or first tooth).',
+          ],
+          vaccines: [
+            'Follow routine childhood vaccine schedule (DTaP, IPV, Hib, PCV, MMR, Varicella, Hep A/B, Flu).',
+          ],
+          exercises: [
+            _ExerciseTip(Icons.child_care_outlined, 'Tummy time', 'Supervised tummy time daily (as advised).'),
+            _ExerciseTip(Icons.directions_walk_outlined, 'Active play', 'Daily movement and play.'),
+          ],
+          ptot: [
+            'PT/OT if delayed milestones, posture concerns, or feeding issues (clinician referral).',
+          ],
+        );
+      case '3–6':
+        return const _MaintenancePlan(
+          preventive: [
+            'Annual checkup; vision/hearing screening.',
+            'Dental checkups every 6 months; brushing and fluoride.',
+          ],
+          vaccines: ['Routine schedule + annual flu; catch-up vaccines as needed.'],
+          exercises: [
+            _ExerciseTip(Icons.directions_run_outlined, 'Play-based activity', 'At least 60 minutes active play most days.'),
+            _ExerciseTip(Icons.sports_soccer_outlined, 'Coordination', 'Jumping, hopping, ball play.'),
+          ],
+          ptot: ['PT/OT if balance/coordination delays or fine-motor concerns.'],
+        );
+      case '7–12':
+        return const _MaintenancePlan(
+          preventive: [
+            'Annual wellness visit; nutrition and healthy sleep habits.',
+            'Vision/hearing screening; dental every 6 months.',
+          ],
+          vaccines: ['Annual flu; follow school-age vaccine schedule.'],
+          exercises: [
+            _ExerciseTip(Icons.sports_basketball_outlined, 'Daily activity', '60 minutes/day moderate to vigorous activity.'),
+            _ExerciseTip(Icons.self_improvement_outlined, 'Flexibility', 'Gentle stretching after activity.'),
+          ],
+          ptot: ['PT if recurrent sports injuries; OT for handwriting/fine-motor issues if needed.'],
+        );
+      case '13–18':
+        return const _MaintenancePlan(
+          preventive: [
+            'Annual visit; mental health screening; sleep and nutrition.',
+            'Sexual health counseling as appropriate.',
+          ],
+          vaccines: ['HPV series, Tdap, meningococcal; annual flu; catch-up vaccines.'],
+          exercises: [
+            _ExerciseTip(Icons.fitness_center_outlined, 'Strength', '2–3 days/week strength training (safe form).'),
+            _ExerciseTip(Icons.directions_run_outlined, 'Cardio', '150+ min/week moderate activity (or equivalent).'),
+          ],
+          ptot: ['PT for sports injuries; OT for ergonomics/hand issues.'],
+        );
+      case '40–64':
+        return const _MaintenancePlan(
+          preventive: [
+            'Annual checkup: blood pressure, diabetes risk, cholesterol (as advised).',
+            'Cancer screening per guidelines (colon; breast/cervix/prostate as appropriate).',
+          ],
+          vaccines: ['Annual flu; COVID boosters as advised; shingles at 50+; Tdap every 10 years.'],
+          exercises: [
+            _ExerciseTip(Icons.directions_walk_outlined, 'Walking', '30 min brisk walk most days.'),
+            _ExerciseTip(Icons.fitness_center_outlined, 'Strength', '2 days/week full-body strength.'),
+            _ExerciseTip(Icons.self_improvement_outlined, 'Mobility', 'Daily mobility/stretching 5–10 minutes.'),
+          ],
+          ptot: ['PT for back/neck/knee pain; OT for work ergonomics or hand arthritis.'],
+        );
+      case '65+':
+        return const _MaintenancePlan(
+          preventive: [
+            'Annual visit; fall risk and vision/hearing assessment.',
+            'Medication review; bone health discussion.',
+          ],
+          vaccines: ['Annual flu; pneumococcal as advised; shingles; COVID boosters as advised.'],
+          exercises: [
+            _ExerciseTip(Icons.balance_outlined, 'Balance', 'Balance exercises 3+ days/week (as safe).'),
+            _ExerciseTip(Icons.directions_walk_outlined, 'Walking', 'Regular walking as tolerated.'),
+            _ExerciseTip(Icons.fitness_center_outlined, 'Strength', '2 days/week strength (safe, supervised if needed).'),
+          ],
+          ptot: ['PT for balance/gait; OT for home safety and daily activities.'],
+        );
+      default:
+        return const _MaintenancePlan(
+          preventive: [
+            'Annual checkup: blood pressure, weight, mental health, and lifestyle review.',
+            'Screenings based on personal risk factors.',
+          ],
+          vaccines: ['Annual flu; COVID boosters as advised; Tdap every 10 years.'],
+          exercises: [
+            _ExerciseTip(Icons.directions_walk_outlined, 'Walking', '150 minutes/week moderate activity.'),
+            _ExerciseTip(Icons.fitness_center_outlined, 'Strength', '2 days/week strength training.'),
+          ],
+          ptot: ['PT/OT if pain, mobility issues, or recovery after injury/surgery.'],
+        );
+    }
+  }
 }
 
 class _EducationItem {
   const _EducationItem({required this.title, required this.url});
   final String title;
   final String url;
+}
+
+class _MaintenancePlan {
+  const _MaintenancePlan({
+    required this.preventive,
+    required this.vaccines,
+    required this.exercises,
+    required this.ptot,
+  });
+
+  final List<String> preventive;
+  final List<String> vaccines;
+  final List<_ExerciseTip> exercises;
+  final List<String> ptot;
+}
+
+class _ExerciseTip {
+  const _ExerciseTip(this.icon, this.title, this.body);
+  final IconData icon;
+  final String title;
+  final String body;
 }

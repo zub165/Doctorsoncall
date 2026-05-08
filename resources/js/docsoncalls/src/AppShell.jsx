@@ -388,7 +388,7 @@ function OsmTriage() {
 }
 
 function Courses() {
-  const [tab, setTab] = React.useState('education'); // education | courses
+  const [tab, setTab] = React.useState('education'); // education | courses | maintenance
   const [q, setQ] = React.useState('');
   const s = useApiCall(() => api.get(ApiPaths.coursesV1).then((r) => r.data), []);
   const itemsAll = React.useMemo(() => {
@@ -418,14 +418,16 @@ function Courses() {
             <span aria-hidden="true">🎓</span>
             Courses
           </button>
-          <button className="dc-tab" type="button" data-active="false" disabled>
-            <span aria-hidden="true">⋯</span>
-            More
+          <button className="dc-tab" type="button" data-active={tab === 'maintenance' ? 'true' : 'false'} onClick={() => setTab('maintenance')}>
+            <span aria-hidden="true">✅</span>
+            Maintenance
           </button>
         </div>
       </div>
 
-      {tab === 'education' ? (
+      {tab === 'maintenance' ? (
+        <AnnualMaintenance />
+      ) : tab === 'education' ? (
         <div className="dc-row" style={{ gap: 14 }}>
           <div style={{ fontWeight: 950, fontSize: 18 }}>Patient education (MedlinePlus)</div>
           <div className="dc-card" style={{ padding: 16 }}>
@@ -515,6 +517,189 @@ function Courses() {
       )}
     </div>
   );
+}
+
+function AnnualMaintenance() {
+  const AGE = [
+    { key: '0-2', label: '0–2' },
+    { key: '3-6', label: '3–6' },
+    { key: '7-12', label: '7–12' },
+    { key: '13-18', label: '13–18' },
+    { key: '19-39', label: '19–39' },
+    { key: '40-64', label: '40–64' },
+    { key: '65+', label: '65+' },
+  ];
+  const [age, setAge] = React.useState('19-39');
+  const plan = React.useMemo(() => maintenancePlan(age), [age]);
+
+  function card(title, icon, bullets, links) {
+    return (
+      <div className="dc-card" style={{ padding: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <div className="dc-avatar" style={{ background: 'rgba(211,47,47,0.10)', color: 'var(--dc-primary-dark)' }}>
+            {icon}
+          </div>
+          <div style={{ fontWeight: 950, fontSize: 16 }}>{title}</div>
+        </div>
+        <div style={{ display: 'grid', gap: 8 }}>
+          {bullets.map((b) => (
+            <div key={b} style={{ fontWeight: 700, color: 'var(--dc-text)' }}>
+              • {b}
+            </div>
+          ))}
+        </div>
+        {links?.length ? (
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
+            {links.map((l) => (
+              <a key={l.href} className="dc-btn" href={l.href} target="_blank" rel="noreferrer" style={{ fontWeight: 900 }}>
+                ↗ {l.label}
+              </a>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="dc-row" style={{ gap: 14 }}>
+      <div className="dc-card" style={{ padding: 16, background: '#fff' }}>
+        <div style={{ fontWeight: 950, fontSize: 18 }}>Annual maintenance checklist</div>
+        <div style={{ color: 'var(--dc-muted)', fontWeight: 800, marginTop: 6 }}>
+          Age-wise preventive care, vaccines, and exercise/PT/OT guidance.
+        </div>
+        <div className="dc-chip-row" style={{ marginTop: 12 }}>
+          {AGE.map((a) => (
+            <button key={a.key} type="button" className="dc-chip" data-active={age === a.key ? 'true' : 'false'} onClick={() => setAge(a.key)}>
+              {a.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {card('Preventive care', '🛡️', plan.preventive, [
+        { label: 'USPSTF', href: 'https://www.uspreventiveservicestaskforce.org/uspstf/recommendation-topics' },
+      ])}
+      {card('Vaccines', '💉', plan.vaccines, [
+        { label: 'CDC schedules', href: 'https://www.cdc.gov/vaccines/schedules/' },
+      ])}
+
+      <div className="dc-card" style={{ padding: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <div className="dc-avatar" style={{ background: 'rgba(211,47,47,0.10)', color: 'var(--dc-primary-dark)' }}>
+            🏃
+          </div>
+          <div style={{ fontWeight: 950, fontSize: 16 }}>Exercise (home)</div>
+        </div>
+        <div className="dc-row" style={{ gap: 10 }}>
+          {plan.exercises.map((e) => (
+            <div key={e.title} className="dc-card" style={{ padding: 12, background: '#f8fafc' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div className="dc-avatar" style={{ width: 36, height: 36, fontSize: 16 }}>
+                  {e.icon}
+                </div>
+                <div>
+                  <div style={{ fontWeight: 950 }}>{e.title}</div>
+                  <div style={{ color: 'var(--dc-muted)', fontWeight: 800, fontSize: 13, marginTop: 2 }}>{e.body}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {card('PT / OT (when to consider)', '🦵', plan.ptot, [
+        { label: 'ChoosePT', href: 'https://www.choosept.com/' },
+        { label: 'AOTA', href: 'https://www.aota.org/consumers' },
+      ])}
+
+      <div className="dc-card" style={{ padding: 14, background: 'rgba(245, 158, 11, 0.10)' }}>
+        <div style={{ fontWeight: 900 }}>
+          Note: This is general guidance, not medical advice. Always follow your clinician’s recommendations.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function maintenancePlan(age) {
+  if (age === '0-2') {
+    return {
+      preventive: ['Well-child visits & development screening', 'Sleep safety & nutrition guidance', 'Dental: first visit by 1 year'],
+      vaccines: ['Routine childhood schedule (DTaP, IPV, Hib, PCV, MMR, Varicella, Hep A/B, Flu)'],
+      exercises: [
+        { icon: '👶', title: 'Tummy time', body: 'Supervised tummy time daily (as advised).' },
+        { icon: '🧸', title: 'Active play', body: 'Daily movement and play.' },
+      ],
+      ptot: ['PT/OT if delayed milestones or feeding/posture concerns (clinician referral).'],
+    };
+  }
+  if (age === '3-6') {
+    return {
+      preventive: ['Annual checkup; vision/hearing screening', 'Dental every 6 months; brushing & fluoride'],
+      vaccines: ['Routine schedule + annual flu; catch-up as needed'],
+      exercises: [
+        { icon: '🏃', title: 'Play-based activity', body: '60 minutes active play most days.' },
+        { icon: '⚽', title: 'Coordination', body: 'Jumping, hopping, ball play.' },
+      ],
+      ptot: ['PT/OT if balance/coordination delays or fine-motor concerns.'],
+    };
+  }
+  if (age === '7-12') {
+    return {
+      preventive: ['Annual wellness visit; nutrition & sleep habits', 'Vision/hearing screening; dental every 6 months'],
+      vaccines: ['Annual flu; school-age schedule'],
+      exercises: [
+        { icon: '🏀', title: 'Daily activity', body: '60 minutes/day moderate–vigorous activity.' },
+        { icon: '🧘', title: 'Flexibility', body: 'Gentle stretching after activity.' },
+      ],
+      ptot: ['PT for recurrent sports injuries; OT for handwriting/fine-motor issues if needed.'],
+    };
+  }
+  if (age === '13-18') {
+    return {
+      preventive: ['Annual visit; mental health screening', 'Sleep/nutrition; sexual health counseling as appropriate'],
+      vaccines: ['HPV, Tdap, meningococcal; annual flu; catch-up'],
+      exercises: [
+        { icon: '🏋️', title: 'Strength', body: '2–3 days/week strength training (safe form).' },
+        { icon: '🏃', title: 'Cardio', body: '150+ min/week moderate activity (or equivalent).' },
+      ],
+      ptot: ['PT for sports injuries; OT for ergonomics/hand issues.'],
+    };
+  }
+  if (age === '40-64') {
+    return {
+      preventive: ['Annual checkup: BP, diabetes risk, cholesterol (as advised)', 'Cancer screening per guidelines (colon; breast/cervix/prostate as appropriate)'],
+      vaccines: ['Annual flu; COVID boosters as advised; shingles at 50+; Tdap every 10 years'],
+      exercises: [
+        { icon: '🚶', title: 'Walking', body: '30 min brisk walk most days.' },
+        { icon: '🏋️', title: 'Strength', body: '2 days/week full-body strength.' },
+        { icon: '🧘', title: 'Mobility', body: 'Daily mobility/stretching 5–10 minutes.' },
+      ],
+      ptot: ['PT for back/neck/knee pain; OT for ergonomics or hand arthritis.'],
+    };
+  }
+  if (age === '65+') {
+    return {
+      preventive: ['Annual visit; fall risk + vision/hearing assessment', 'Medication review; bone health discussion'],
+      vaccines: ['Annual flu; pneumococcal as advised; shingles; COVID boosters as advised'],
+      exercises: [
+        { icon: '⚖️', title: 'Balance', body: 'Balance exercises 3+ days/week (safe).'},
+        { icon: '🚶', title: 'Walking', body: 'Regular walking as tolerated.' },
+        { icon: '🏋️', title: 'Strength', body: '2 days/week strength (safe/supervised).'},
+      ],
+      ptot: ['PT for balance/gait; OT for home safety and daily activities.'],
+    };
+  }
+  return {
+    preventive: ['Annual checkup: BP, weight, mental health, lifestyle review', 'Screenings based on risk factors'],
+    vaccines: ['Annual flu; COVID boosters as advised; Tdap every 10 years'],
+    exercises: [
+      { icon: '🚶', title: 'Walking', body: '150 minutes/week moderate activity.' },
+      { icon: '🏋️', title: 'Strength', body: '2 days/week strength training.' },
+    ],
+    ptot: ['PT/OT if pain, mobility issues, or recovery after injury/surgery.'],
+  };
 }
 
 function AiAssistant() {
