@@ -500,10 +500,16 @@ function Courses() {
                       <div style={{ marginTop: 12 }}>
                         <div style={{ fontWeight: 950, marginBottom: 8 }}>Resources</div>
                         <div className="dc-chip-row">
-                          {resources.slice(0, 4).map((r) => (
-                            <a key={r?.url || r?.title} className="dc-chip" href={r?.url || '#'} target="_blank" rel="noreferrer">
-                              {(r?.title || 'Link').toString()}
-                            </a>
+                          {resources.slice(0, 4).map((r, rIdx) => (
+                            r?.url ? (
+                              <a key={r?.url || r?.title} className="dc-chip" href={r.url} target="_blank" rel="noreferrer">
+                                {(r?.title || 'Link').toString()}
+                              </a>
+                            ) : (
+                              <span key={`${r?.title || 'link'}-${rIdx}`} className="dc-chip" style={{ cursor: 'default', opacity: 0.7 }}>
+                                {(r?.title || 'Link').toString()}
+                              </span>
+                            )
                           ))}
                         </div>
                       </div>
