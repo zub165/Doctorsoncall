@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class Country(models.Model):
@@ -228,11 +229,21 @@ class ImportInbox(models.Model):
 
 
 class Feedback(models.Model):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    feedback = models.CharField(max_length=255)
+    # Allow anonymous feedback (mobile apps may submit before login).
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="feedback_items",
+    )
+    feedback = models.TextField()
+    # Use default so migrations don't prompt for existing rows.
+    created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         db_table = "feedback"
+        ordering = ["-id"]
 
 
 class NutritionEntry(models.Model):

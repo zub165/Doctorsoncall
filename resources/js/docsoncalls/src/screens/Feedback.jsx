@@ -15,8 +15,20 @@ export function Feedback() {
       setState({ loading: false, ok: true, error: '' });
       setForm({ message: '' });
       setQuick('');
-    } catch {
-      setState({ loading: false, ok: false, error: 'Failed to submit feedback.' });
+    } catch (e2) {
+      const r = e2?.response?.data;
+      const msg =
+        (typeof r?.message === 'string' && r.message) ||
+        (typeof r?.detail === 'string' && r.detail) ||
+        (typeof r?.error === 'string' && r.error) ||
+        (typeof r?.errors === 'object' && r?.errors
+          ? Object.values(r.errors)
+              .flat()
+              .map((x) => String(x))
+              .join(' | ')
+          : '') ||
+        'Failed to submit feedback.';
+      setState({ loading: false, ok: false, error: msg });
     }
   }
 

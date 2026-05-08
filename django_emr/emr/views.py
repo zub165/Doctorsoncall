@@ -769,12 +769,13 @@ def user_data(request):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def feedback_submit(request):
     text = request.data.get("feedback") or request.data.get("message")
     if not text:
         return _error({"feedback": ["required"]})
-    Feedback.objects.create(user=request.user, feedback=text[:255])
+    user = request.user if getattr(request, "user", None) and request.user.is_authenticated else None
+    Feedback.objects.create(user=user, feedback=str(text).strip()[:5000])
     return _success(message="Feedback submitted")
 
 

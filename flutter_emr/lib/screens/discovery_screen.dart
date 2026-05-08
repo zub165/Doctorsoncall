@@ -44,6 +44,8 @@ class DiscoveryScreen extends StatelessWidget {
 
   Widget _buildCountriesTab() {
     return _ListTab(future: EmrFeaturesApi(apiClient).countries(), itemBuilder: (item) {
+      final name = item['country_name'] ?? item['name'] ?? item['title'] ?? item['country_code'] ?? item['code'] ?? 'Unknown';
+      final code = item['country_code'] ?? item['code'] ?? item['iso2'] ?? item['abbr'] ?? '';
       return Card(
         margin: const EdgeInsets.only(bottom: 8),
         child: ListTile(
@@ -52,8 +54,8 @@ class DiscoveryScreen extends StatelessWidget {
             decoration: BoxDecoration(color: const Color(0xFFD32F2F).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
             child: const Icon(Icons.public, color: Color(0xFFD32F2F)),
           ),
-          title: Text(item['country_name'] ?? item['country_code'] ?? 'Unknown'),
-          subtitle: Text(item['country_code'] ?? ''),
+          title: Text(name.toString()),
+          subtitle: Text(code.toString()),
           trailing: const Icon(Icons.chevron_right),
         ),
       );
@@ -62,6 +64,8 @@ class DiscoveryScreen extends StatelessWidget {
 
   Widget _buildSpecialitiesTab() {
     return _ListTab(future: EmrFeaturesApi(apiClient).specialities(), itemBuilder: (item) {
+      final name = item['speciality_name'] ?? item['name'] ?? item['title'] ?? 'Unknown';
+      final img = item['speciality_image'] ?? item['image'] ?? item['icon'] ?? '';
       return Card(
         margin: const EdgeInsets.only(bottom: 8),
         child: ListTile(
@@ -70,8 +74,8 @@ class DiscoveryScreen extends StatelessWidget {
             decoration: BoxDecoration(color: const Color(0xFF4CAF50).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
             child: const Icon(Icons.medical_services, color: Color(0xFF4CAF50)),
           ),
-          title: Text(item['speciality_name'] ?? 'Unknown'),
-          subtitle: Text(item['speciality_image'] ?? ''),
+          title: Text(name.toString()),
+          subtitle: Text(img.toString()),
           trailing: const Icon(Icons.chevron_right),
         ),
       );
@@ -80,27 +84,31 @@ class DiscoveryScreen extends StatelessWidget {
 
   Widget _buildProvidersTab() {
     return _ListTab(future: EmrFeaturesApi(apiClient).providers(), itemBuilder: (item) {
+      final fullName = (item['full_name'] ?? item['name'] ?? item['fullName'] ?? 'Provider').toString();
+      final email = (item['email'] ?? '').toString();
+      final status = (item['status'] ?? item['state'] ?? '').toString();
+      final spec = (item['speciality_name'] ?? item['speciality'] ?? item['speciality_id'] ?? '').toString();
       return Card(
         margin: const EdgeInsets.only(bottom: 8),
         child: ListTile(
           leading: CircleAvatar(
             backgroundColor: const Color(0xFF2196F3),
             child: Text(
-              (item['full_name'] ?? 'P')[0].toString().toUpperCase(),
+              fullName.isEmpty ? 'P' : fullName[0].toUpperCase(),
               style: const TextStyle(color: Colors.white),
             ),
           ),
-          title: Text(item['full_name'] ?? 'Unknown'),
-          subtitle: Text('${item['speciality_id']} • ${item['status'] ?? 'N/A'}'),
+          title: Text(fullName.isEmpty ? 'Unknown' : fullName),
+          subtitle: Text([spec, email, status].where((x) => x.trim().isNotEmpty).join(' • ')),
           trailing: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: item['status'] == 'active' ? const Color(0xFF4CAF50).withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.1),
+              color: status == 'active' ? const Color(0xFF4CAF50).withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
-              item['status'] ?? 'N/A',
-              style: TextStyle(fontSize: 12, color: item['status'] == 'active' ? const Color(0xFF4CAF50) : Colors.grey),
+              status.isEmpty ? 'N/A' : status,
+              style: TextStyle(fontSize: 12, color: status == 'active' ? const Color(0xFF4CAF50) : Colors.grey),
             ),
           ),
         ),
@@ -114,6 +122,37 @@ class _ListTab extends StatelessWidget {
   final Widget Function(Map<String, dynamic>) itemBuilder;
 
   const _ListTab({required this.future, required this.itemBuilder});
+
+  List<dynamic> _unwrapList(dynamic data) {
+    if (data is List) return data;
+    if (data is! Map) return const [];
+
+    dynamic pickList(dynamic v) {
+      if (v is List) return v;
+      if (v is Map) {
+        final r = v['results'];
+        if (r is List) return r;
+        final d = v['data'];
+        if (d is List) return d;
+        if (d is Map) {
+          final rr = d['results'];
+          if (rr is List) return rr;
+          final dd = d['data'];
+          if (dd is List) return dd;
+        }
+      }
+      return null;
+    }
+
+    return (pickList(data['results']) ??
+            pickList(data['data']) ??
+            pickList(data['items']) ??
+            pickList(data['providers']) ??
+            pickList(data['specialities']) ??
+            pickList(data['countries']) ??
+            pickList(data)) ??
+        const [];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -136,13 +175,7 @@ class _ListTab extends StatelessWidget {
             ),
           );
         }
-        final data = snap.data;
-        List<dynamic> items = [];
-        if (data is Map) {
-          items = data['results'] ?? data['data'] ?? data['providers'] ?? data['specialities'] ?? data['countries'] ?? [];
-        } else if (data is List) {
-          items = data;
-        }
+        final items = _unwrapList(snap.data);
         if (items.isEmpty) {
           return Center(
             child: Column(

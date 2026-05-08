@@ -31,7 +31,21 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
       setState(() => _status = 'Sent.');
       _text.clear();
     } on DioException catch (e) {
-      setState(() => _status = e.message);
+      String msg = e.message ?? 'Failed to send.';
+      final data = e.response?.data;
+      if (data is Map) {
+        final m = data['message'] ?? data['detail'];
+        if (m is String && m.trim().isNotEmpty) msg = m.trim();
+        final errs = data['errors'] ?? data['error'] ?? data['feedback'];
+        if (errs is Map && errs.isNotEmpty) {
+          msg = errs.values.map((v) => v is List ? v.join(', ') : v.toString()).join(' | ');
+        } else if (errs is List && errs.isNotEmpty) {
+          msg = errs.join(', ');
+        } else if (errs is String && errs.trim().isNotEmpty) {
+          msg = errs.trim();
+        }
+      }
+      setState(() => _status = msg);
     } finally {
       setState(() => _busy = false);
     }
