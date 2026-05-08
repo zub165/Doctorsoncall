@@ -12,12 +12,27 @@ class EmergencyApiClient {
   final TokenRepository tokenRepo;
   final Dio _dio = Dio();
 
+  static String _normalizeBaseUrl(String input) {
+    var base = input.trim();
+    if (base.isEmpty) return base;
+    if (!base.endsWith('/')) base = '$base/';
+
+    // If already mounted at `/api/`, keep it stable.
+    if (base.endsWith('/api/')) return base;
+    if (base.endsWith('/api')) return '$base/';
+
+    // Common misconfig: user sets "https://api.docsoncalls.com" (host only).
+    // Our paths are relative to `/api/`, so ensure it exists.
+    return '${base}api/';
+  }
+
   EmergencyApiClient({TokenRepository? tokenRepository, String? baseUrl})
       : tokenRepo = tokenRepository ?? TokenRepository() {
+    final resolved = (baseUrl != null && baseUrl.trim().isNotEmpty)
+        ? baseUrl.trim()
+        : ApiConfig.emrApiBaseUrl;
     _dio.options
-      ..baseUrl = (baseUrl != null && baseUrl.trim().isNotEmpty)
-          ? baseUrl.trim()
-          : ApiConfig.emrApiBaseUrl
+      ..baseUrl = _normalizeBaseUrl(resolved)
       ..connectTimeout = const Duration(seconds: 15)
       ..receiveTimeout = const Duration(seconds: 30)
       ..headers['Accept'] = ApiHeaders.acceptJson;
