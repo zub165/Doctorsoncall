@@ -44,6 +44,11 @@ jobs:
       - name: Build Pages bundle
         run: npm run build:pages
 
+      - name: Normalize output (index.html at dist root)
+        run: |
+          cp dist/docsoncalls-pages/index.html dist/index.html
+          rm -rf dist/docsoncalls-pages
+
       - name: Add SPA fallback
         run: cp dist/index.html dist/404.html
 
