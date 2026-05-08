@@ -1796,22 +1796,47 @@ def general_settings(request, key=None):
 @authentication_classes([TokenAuthentication, SessionAuthentication])
 @permission_classes([IsAuthenticated])
 def medical_records_list(request):
-    """`GET|POST /api/medical-records/` — list/create (stub for local dev)."""
+    """`GET|POST /api/medical-records/` — list/create."""
+    user = request.user
+
+    # Authorization: staff + providers can view all or a specific patient_id.
+    patient_id = request.query_params.get("patient_id") or request.data.get("patient_id")
+    qs = MedicalRecord.objects.select_related("patient").all()
+    if _is_staffish(user) or user.provider_profiles.exists():
+        if patient_id:
+            qs = qs.filter(patient_id=patient_id)
+    else:
+        p = _get_patient_for_user(user)
+        if not p:
+            return _success({"results": []})
+        qs = qs.filter(patient=p)
+
     if request.method == "GET":
-        sample = [
-            {
-                "id": "demo-1",
-                "title": "Annual wellness visit",
-                "record_type": "Visit summary",
-                "summary": "Vitals stable. Follow up in 12 months.",
-                "provider_name": "Dr. Demo",
-                "facility_name": "Demo Medical",
-                "recorded_at": "2026-01-15T10:00:00Z",
-                "ai_highlight": "No red flags; cholesterol trending down.",
-            }
-        ]
-        return _success({"results": sample})
-    return _success({"id": "new-stub"}, message="Created (stub)")
+        ser = MedicalRecordSerializer(qs[:200], many=True)
+        return _success({"results": ser.data})
+
+    # POST create (minimal)
+    if not (_is_staffish(user) or user.provider_profiles.exists()):
+        p = _get_patient_for_user(user)
+        if not p:
+            return _error({"patient": ["No patient profile found for this user."]})
+        patient_id = p.id
+
+    ser = MedicalRecordSerializer(
+        data={
+            "patient": patient_id,
+            "source_url": request.data.get("source_url") or "",
+            "source_system": request.data.get("source_system") or "",
+            "title": request.data.get("title") or "",
+            "raw_payload": request.data.get("raw_payload") or "",
+            "ai_summary": request.data.get("ai_summary") or "",
+            "merged_by": user.id if (_is_staffish(user) or user.provider_profiles.exists()) else None,
+        }
+    )
+    if ser.is_valid():
+        obj = ser.save()
+        return _success({"record": MedicalRecordSerializer(obj).data}, message="Created")
+    return _error(ser.errors)
 
 
 @api_view(["GET", "PATCH", "DELETE"])
@@ -1819,19 +1844,30 @@ def medical_records_list(request):
 @permission_classes([IsAuthenticated])
 def medical_record_detail(request, record_id):
     """`GET|PATCH|DELETE /api/medical-records/<id>/`"""
+    user = request.user
+    rec = MedicalRecord.objects.filter(id=record_id).first()
+    if not rec:
+        return _error({"record": ["not found"]}, status.HTTP_404_NOT_FOUND)
+
+    # Authorization
+    if not (_is_staffish(user) or user.provider_profiles.exists()):
+        p = _get_patient_for_user(user)
+        if not p or rec.patient_id != p.id:
+            return _error({"detail": ["forbidden"]}, status.HTTP_403_FORBIDDEN)
+
     if request.method == "GET":
-        return _success(
-            {
-                "id": record_id,
-                "title": "Medical record",
-                "record_type": "Detail",
-                "summary": "Stub detail — replace with production medical-records handler.",
-                "provider_name": "Dr. Demo",
-                "facility_name": "Demo Medical",
-                "ai_highlight": "Key vitals within normal limits.",
-            }
-        )
-    return _success(message="OK (stub)")
+        return _success({"record": MedicalRecordSerializer(rec).data})
+
+    if request.method == "DELETE":
+        rec.delete()
+        return _success(message="Deleted")
+
+    # PATCH
+    ser = MedicalRecordSerializer(rec, data=request.data, partial=True)
+    if ser.is_valid():
+        ser.save(merged_by=user if (_is_staffish(user) or user.provider_profiles.exists()) else rec.merged_by)
+        return _success({"record": ser.data}, message="Updated")
+    return _error(ser.errors)
 
 
 @api_view(["POST"])
