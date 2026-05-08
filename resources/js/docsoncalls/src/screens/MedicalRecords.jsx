@@ -2,10 +2,14 @@ import React from 'react';
 import { api, ApiPaths } from '../api.js';
 
 export function MedicalRecords() {
-  const [tab, setTab] = React.useState('records'); // records | ai
+  const [tab, setTab] = React.useState('records'); // records | ai | docs
   const [prompt, setPrompt] = React.useState('');
   const [ai, setAi] = React.useState({ loading: false, error: '', data: null });
   const [impOpen, setImpOpen] = React.useState(false);
+  const [docs, setDocs] = React.useState({ loading: true, items: [], error: '' });
+  const [upload, setUpload] = React.useState({ loading: false, ok: '', error: '' });
+  const [picked, setPicked] = React.useState(null);
+  const [activeDoc, setActiveDoc] = React.useState({ id: null, loading: false, error: '', data: null });
   const [imp, setImp] = React.useState({
     source_url: '',
     patient_email: '',
@@ -36,6 +40,23 @@ export function MedicalRecords() {
     return () => {
       alive = false;
     };
+  }, []);
+
+  async function loadDocs() {
+    setDocs((s) => ({ ...s, loading: true, error: '' }));
+    try {
+      const { data } = await api.get(ApiPaths.documents);
+      const items = Array.isArray(data) ? data : data?.data?.results || data?.results || data?.data || [];
+      setDocs({ loading: false, items: Array.isArray(items) ? items : [], error: '' });
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.message || 'Failed to load documents.';
+      setDocs({ loading: false, items: [], error: msg.toString() });
+    }
+  }
+
+  React.useEffect(() => {
+    loadDocs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function runAi(e) {
@@ -95,6 +116,46 @@ export function MedicalRecords() {
     }
   }
 
+  async function uploadDoc(e) {
+    e?.preventDefault?.();
+    if (!picked) return;
+    setUpload({ loading: true, ok: '', error: '' });
+    try {
+      const fd = new FormData();
+      fd.append('file', picked);
+      const { data } = await api.post(ApiPaths.documents, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      const doc = data?.data?.document ?? data?.document;
+      setUpload({ loading: false, ok: 'Uploaded.', error: '' });
+      setPicked(null);
+      await loadDocs();
+      const id = doc?.id;
+      if (id) setActiveDoc({ id, loading: false, error: '', data: doc });
+    } catch (err) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.response?.data?.detail ||
+        (err?.response?.data?.errors ? JSON.stringify(err.response.data.errors) : '') ||
+        err?.message ||
+        'Upload failed';
+      setUpload({ loading: false, ok: '', error: msg.toString() });
+    }
+  }
+
+  async function processDoc(id) {
+    if (!id) return;
+    setActiveDoc({ id, loading: true, error: '', data: null });
+    try {
+      const { data } = await api.post(ApiPaths.documentDetail(id));
+      setActiveDoc({ id, loading: false, error: '', data });
+      await loadDocs();
+    } catch (err) {
+      const msg = err?.response?.data?.message || err?.response?.data?.detail || err?.message || 'Process failed';
+      setActiveDoc({ id, loading: false, error: msg.toString(), data: null });
+    }
+  }
+
   return (
     <div className="dc-row" style={{ gap: 14 }}>
       <div className="dc-appbar">
@@ -115,10 +176,100 @@ export function MedicalRecords() {
             <span aria-hidden="true">＋</span>
             Import
           </button>
+          <button className="dc-tab" type="button" data-active={tab === 'docs' ? 'true' : 'false'} onClick={() => setTab('docs')}>
+            <span aria-hidden="true">📎</span>
+            Documents
+          </button>
         </div>
       </div>
 
-      {tab === 'ai' ? (
+      {tab === 'docs' ? (
+        <div className="dc-row" style={{ gap: 14 }}>
+          <div className="dc-card" style={{ padding: 16 }}>
+            <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 10 }}>Upload document (PDF or image)</div>
+            <form className="dc-row" onSubmit={uploadDoc} style={{ gap: 10 }}>
+              <input
+                className="dc-input"
+                type="file"
+                accept="application/pdf,image/*,text/plain"
+                onChange={(e) => setPicked(e.target.files?.[0] || null)}
+              />
+              {upload.error ? <div style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>{upload.error}</div> : null}
+              {upload.ok ? <div style={{ color: 'var(--dc-primary-dark)', fontWeight: 900 }}>{upload.ok}</div> : null}
+              <button className="dc-btn dc-btn-primary" disabled={upload.loading || !picked} style={{ fontWeight: 950, padding: 14, borderRadius: 16 }}>
+                {upload.loading ? 'Uploading…' : 'Upload'}
+              </button>
+            </form>
+            <div style={{ marginTop: 10, color: 'var(--dc-muted)', fontSize: 12, fontWeight: 800 }}>
+              After upload, click “Process” to run text extraction/OCR and generate the doctor report.
+            </div>
+          </div>
+
+          {docs.loading ? (
+            <div className="dc-card" style={{ color: 'var(--dc-muted)' }}>
+              Loading documents…
+            </div>
+          ) : docs.error ? (
+            <div className="dc-card" style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>
+              {docs.error}
+            </div>
+          ) : docs.items.length === 0 ? (
+            <div className="dc-card" style={{ color: 'var(--dc-muted)' }}>
+              No documents yet.
+            </div>
+          ) : (
+            <div className="dc-list">
+              {docs.items.slice(0, 60).map((d) => {
+                const doc = d?.document ?? d;
+                const id = doc?.id;
+                return (
+                  <div key={id} className="dc-list-row" style={{ alignItems: 'flex-start' }}>
+                    <div className="dc-list-left">
+                      <div className="dc-avatar">📎</div>
+                      <div className="dc-list-text">
+                        <div className="dc-list-title">{(doc?.original_name || doc?.file || `Document #${id}`).toString()}</div>
+                        <div className="dc-list-sub" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                          <span>Status: {(doc?.status || 'uploaded').toString()}</span>
+                          {doc?.created_at ? <span>• {doc.created_at.toString()}</span> : null}
+                        </div>
+                        {doc?.ai_summary ? (
+                          <div className="dc-card" style={{ marginTop: 10, background: 'white' }}>
+                            <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 13 }}>{doc.ai_summary.toString()}</pre>
+                          </div>
+                        ) : null}
+                        {doc?.error_message ? (
+                          <div style={{ marginTop: 8, color: 'var(--dc-danger)', fontWeight: 900 }}>{doc.error_message.toString()}</div>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div style={{ display: 'grid', gap: 8, justifyItems: 'end' }}>
+                      <button className="dc-btn" type="button" onClick={() => processDoc(id)} disabled={activeDoc.loading && activeDoc.id === id}>
+                        {activeDoc.loading && activeDoc.id === id ? 'Processing…' : 'Process'}
+                      </button>
+                      {doc?.file_url ? (
+                        <a className="dc-btn" href={doc.file_url.toString()} target="_blank" rel="noreferrer">
+                          View
+                        </a>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {activeDoc.error ? (
+            <div className="dc-card" style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>
+              {activeDoc.error}
+            </div>
+          ) : activeDoc.data ? (
+            <div className="dc-card">
+              <div style={{ fontWeight: 950, marginBottom: 8 }}>Processing result</div>
+              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 12 }}>{JSON.stringify(activeDoc.data, null, 2)}</pre>
+            </div>
+          ) : null}
+        </div>
+      ) : tab === 'ai' ? (
         <div className="dc-row" style={{ gap: 14 }}>
           <div className="dc-card" style={{ background: '#eef2ff', borderColor: 'rgba(99, 102, 241, 0.25)' }}>
             <div style={{ fontWeight: 900, color: '#3730a3' }}>

@@ -15,7 +15,11 @@ void main() {
 }
 
 class DoctorOnCallApp extends StatelessWidget {
-  const DoctorOnCallApp({super.key});
+  const DoctorOnCallApp({super.key, this.offlineDbFactory});
+
+  /// Optional override to construct the offline database.
+  /// Keep `null` in widget tests to avoid background isolates/timers.
+  final OfflineDb Function()? offlineDbFactory;
 
   @override
   Widget build(BuildContext context) {
@@ -23,14 +27,16 @@ class DoctorOnCallApp extends StatelessWidget {
       title: 'Doctor On Call',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(),
-      home: const _SessionGate(),
+      home: _SessionGate(offlineDbFactory: offlineDbFactory),
     );
   }
 }
 
 /// Routes to [AppShell] when a saved DRF `Token` exists.
 class _SessionGate extends StatefulWidget {
-  const _SessionGate();
+  const _SessionGate({this.offlineDbFactory});
+
+  final OfflineDb Function()? offlineDbFactory;
 
   @override
   State<_SessionGate> createState() => _SessionGateState();
@@ -39,7 +45,7 @@ class _SessionGate extends StatefulWidget {
 class _SessionGateState extends State<_SessionGate> {
   late final Future<({EmergencyApiClient client, String? token, String? role})>
       _boot;
-  late final OfflineDb _offlineDb = OfflineDb();
+  OfflineDb? _offlineDb;
 
   @override
   void initState() {
@@ -58,7 +64,9 @@ class _SessionGateState extends State<_SessionGate> {
               .trim();
 
           // Best-effort background sync on app start (safe when offline).
-          await SyncService(client: client, db: _offlineDb).syncAll();
+          final mkDb = widget.offlineDbFactory ?? () => OfflineDb();
+          _offlineDb ??= mkDb();
+          await SyncService(client: client, db: _offlineDb!).syncAll();
         } catch (_) {
           role = null;
         }
@@ -69,7 +77,7 @@ class _SessionGateState extends State<_SessionGate> {
 
   @override
   void dispose() {
-    _offlineDb.close();
+    _offlineDb?.close();
     super.dispose();
   }
 

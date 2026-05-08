@@ -23,7 +23,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final c = widget.apiClient;
     final api = EmrFeaturesApi(c);
 
-    final baseUrl = ApiConfig.apiBaseUrl;
+    final emrBaseUrl = ApiConfig.emrApiBaseUrl;
+    final mapsBaseUrl = ApiConfig.mapsApiBaseUrl;
     final userMePath = ApiConfig.userMePath;
 
     bool healthOk = false;
@@ -72,7 +73,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     return _ConnState(
-      baseUrl: baseUrl,
+      emrBaseUrl: emrBaseUrl,
+      mapsBaseUrl: mapsBaseUrl,
       userMePath: userMePath,
       healthOk: healthOk,
       meOk: meOk,
@@ -116,7 +118,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
               ),
               const SizedBox(height: 10),
-              _kvCard('API base URL', s.baseUrl),
+              _kvCard('EMR API base URL', s.emrBaseUrl),
+              _kvCard('Maps API base URL', s.mapsBaseUrl),
               _kvCard('User profile path', s.userMePath),
               const SizedBox(height: 12),
               _statusCard(
@@ -237,7 +240,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
 class _ConnState {
   _ConnState({
-    required this.baseUrl,
+    required this.emrBaseUrl,
+    required this.mapsBaseUrl,
     required this.userMePath,
     required this.healthOk,
     required this.meOk,
@@ -246,7 +250,8 @@ class _ConnState {
     required this.replicateMessage,
   });
 
-  final String baseUrl;
+  final String emrBaseUrl;
+  final String mapsBaseUrl;
   final String userMePath;
   final bool healthOk;
   final bool meOk;

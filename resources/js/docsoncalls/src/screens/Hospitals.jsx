@@ -1,5 +1,5 @@
 import React from 'react';
-import { api, ApiPaths } from '../api.js';
+import { mapsApi, api as emrApi, ApiPaths } from '../api.js';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 
@@ -17,7 +17,7 @@ export function Hospitals() {
     let alive = true;
     (async () => {
       try {
-        const { data } = await api.get(ApiPaths.hospitals);
+        const { data } = await mapsApi.get(ApiPaths.hospitals);
         const items = Array.isArray(data) ? data : data?.results || [];
         if (!alive) return;
         setState({ loading: false, items, error: '' });
@@ -35,7 +35,15 @@ export function Hospitals() {
     if (!hospitalId) return;
     setWait((s) => ({ ...s, loading: true, error: '' }));
     try {
-      const { data } = await api.get(ApiPaths.erWaitTimes, { params: { hospital_id: hospitalId } });
+      let data;
+      try {
+        const res = await mapsApi.get('hospitals/wait-times/', { params: { hospital_id: hospitalId } });
+        data = res.data;
+      } catch {
+        // Back-compat: some deployments expose wait-time via EMR proxy (`/api/er-wait-times/`).
+        const res = await emrApi.get(ApiPaths.erWaitTimes, { params: { hospital_id: hospitalId } });
+        data = res.data;
+      }
       setWait((s) => ({
         loading: false,
         error: '',
@@ -240,7 +248,7 @@ export function Hospitals() {
               }}
             >
               <span>© OpenStreetMap contributors</span>
-              <span>Markers: GET /api/hospitals/</span>
+              <span>Markers: Maps API</span>
             </div>
           </div>
 

@@ -3,6 +3,7 @@ import json
 from django.contrib.auth import authenticate
 from django.utils.dateparse import parse_date, parse_time
 from django.conf import settings
+from django.utils import timezone
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
@@ -15,6 +16,7 @@ from rest_framework.decorators import (
     permission_classes,
 )
 from rest_framework.permissions import AllowAny, IsAuthenticated, SAFE_METHODS
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 
@@ -33,6 +35,7 @@ from .models import (
     Provider,
     Speciality,
     Timezone,
+    PatientDocument,
 )
 from .serializers import (
     AppointmentSerializer,
@@ -50,7 +53,198 @@ from .serializers import (
     RegisterSerializer,
     SpecialitySerializer,
     TimezoneSerializer,
+    PatientDocumentSerializer,
 )
+
+
+def _is_staffish(user):
+    return bool(getattr(user, "is_staff", False) or getattr(user, "is_superuser", False))
+
+
+def _get_patient_for_user(user):
+    return Patient.objects.filter(user=user).first()
+
+
+def _extract_text_from_upload(uploaded_file, content_type_hint=""):
+    """
+    Best-effort text extraction:
+    - PDF: PyPDF2 (text-layer only)
+    - text/*: decode
+    - images: pytesseract if available
+
+    Returns: (text, status, error_message)
+    """
+    name = (getattr(uploaded_file, "name", "") or "").lower()
+    ctype = (content_type_hint or getattr(uploaded_file, "content_type", "") or "").lower()
+
+    try:
+        raw = uploaded_file.read()
+    finally:
+        try:
+            uploaded_file.seek(0)
+        except Exception:
+            pass
+
+    # text
+    if ctype.startswith("text/") or name.endswith(".txt"):
+        try:
+            return raw.decode("utf-8", errors="ignore"), PatientDocument.Status.TEXT_EXTRACTED, ""
+        except Exception as e:
+            return "", PatientDocument.Status.ERROR, str(e)
+
+    # pdf (text layer)
+    if ctype == "application/pdf" or name.endswith(".pdf"):
+        try:
+            import io
+            from PyPDF2 import PdfReader
+
+            reader = PdfReader(io.BytesIO(raw))
+            parts = []
+            for p in reader.pages[:50]:
+                try:
+                    parts.append(p.extract_text() or "")
+                except Exception:
+                    parts.append("")
+            text = "\n".join([x for x in parts if x]).strip()
+            if text:
+                return text, PatientDocument.Status.TEXT_EXTRACTED, ""
+            return "", PatientDocument.Status.TEXT_EXTRACTED, "No text layer found (OCR required for scanned PDFs)."
+        except Exception as e:
+            return "", PatientDocument.Status.ERROR, f"PDF extract failed: {e}"
+
+    # image OCR
+    if ctype.startswith("image/") or any(name.endswith(x) for x in (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff")):
+        try:
+            from PIL import Image
+            import io
+            import pytesseract
+
+            img = Image.open(io.BytesIO(raw))
+            text = (pytesseract.image_to_string(img) or "").strip()
+            return text, PatientDocument.Status.OCR_DONE, ""
+        except Exception as e:
+            return "", PatientDocument.Status.ERROR, (
+                "OCR failed. Ensure Pillow + pytesseract are installed and `tesseract` is available on the server. "
+                f"Details: {e}"
+            )
+
+    return "", PatientDocument.Status.ERROR, "Unsupported file type for extraction."
+
+
+def _summarize_text_stub(text: str) -> str:
+    """
+    Minimal summary scaffold (no external LLM dependency).
+    Replace with a real LLM call when ready.
+    """
+    t = (text or "").strip()
+    if not t:
+        return "No text extracted from this document."
+    # Keep it bounded for storage/UI.
+    t = t[:20000]
+    lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
+    head = "\n".join(lines[:30])
+    return (
+        "AI Summary (basic):\n"
+        "- This is a server-side scaffold summary (no external LLM configured).\n"
+        "- Extracted highlights (first lines):\n\n"
+        f"{head}"
+    )
+
+
+@api_view(["GET", "POST"])
+@authentication_classes([TokenAuthentication, SessionAuthentication])
+@permission_classes([IsAuthenticated])
+def patient_documents(request):
+    """
+    GET: list documents visible to current user
+    POST: upload a patient document (multipart form-data: file, optional patient_id)
+    """
+    user = request.user
+    if request.method == "GET":
+        patient_id = request.query_params.get("patient_id")
+        qs = PatientDocument.objects.all()
+        if _is_staffish(user) or user.provider_profiles.exists():
+            if patient_id:
+                qs = qs.filter(patient_id=patient_id)
+        else:
+            p = _get_patient_for_user(user)
+            if not p:
+                return _success({"results": []})
+            qs = qs.filter(patient=p)
+        ser = PatientDocumentSerializer(qs[:200], many=True, context={"request": request})
+        return _success({"results": ser.data})
+
+    # POST upload
+    f = request.FILES.get("file")
+    if not f:
+        return _error({"file": ["file is required"]})
+    patient_id = request.data.get("patient_id") or request.query_params.get("patient_id")
+    patient = None
+    if patient_id and (_is_staffish(user) or user.provider_profiles.exists()):
+        patient = Patient.objects.filter(id=patient_id).first()
+    if patient is None:
+        patient = _get_patient_for_user(user)
+    if patient is None:
+        return _error({"patient": ["No patient profile found for this user."]})
+
+    doc = PatientDocument.objects.create(
+        patient=patient,
+        uploaded_by=user if user.is_authenticated else None,
+        file=f,
+        original_name=getattr(f, "name", "") or "",
+        content_type=getattr(f, "content_type", "") or "",
+        size_bytes=getattr(f, "size", 0) or 0,
+        status=PatientDocument.Status.UPLOADED,
+    )
+    ser = PatientDocumentSerializer(doc, context={"request": request})
+    return _success({"document": ser.data}, message="Uploaded")
+
+
+@api_view(["GET", "POST"])
+@authentication_classes([TokenAuthentication, SessionAuthentication])
+@permission_classes([IsAuthenticated])
+def patient_document_detail(request, doc_id):
+    """
+    GET: document detail
+    POST: process (extract/OCR + summarize)
+    """
+    user = request.user
+    doc = PatientDocument.objects.filter(id=doc_id).first()
+    if not doc:
+        return _error({"document": ["not found"]}, status.HTTP_404_NOT_FOUND)
+
+    # Authorization
+    if not (_is_staffish(user) or user.provider_profiles.exists()):
+        p = _get_patient_for_user(user)
+        if not p or doc.patient_id != p.id:
+            return _error({"detail": ["forbidden"]}, status.HTTP_403_FORBIDDEN)
+
+    if request.method == "GET":
+        ser = PatientDocumentSerializer(doc, context={"request": request})
+        # include a short preview for UI convenience
+        preview = (doc.extracted_text or "")[:4000]
+        return _success({"document": ser.data, "text_preview": preview})
+
+    # Process
+    try:
+        text, st, err = _extract_text_from_upload(doc.file, doc.content_type)
+        doc.extracted_text = text or ""
+        doc.status = st
+        doc.error_message = err or ""
+        if st != PatientDocument.Status.ERROR:
+            doc.ai_summary = _summarize_text_stub(doc.extracted_text)
+            doc.status = PatientDocument.Status.SUMMARIZED
+        doc.processed_at = timezone.now()
+        doc.save()
+    except Exception as e:
+        doc.status = PatientDocument.Status.ERROR
+        doc.error_message = str(e)
+        doc.processed_at = timezone.now()
+        doc.save()
+
+    ser = PatientDocumentSerializer(doc, context={"request": request})
+    preview = (doc.extracted_text or "")[:4000]
+    return _success({"document": ser.data, "text_preview": preview}, message="Processed")
 
 
 def _success(data=None, message="OK"):

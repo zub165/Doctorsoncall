@@ -43,7 +43,16 @@ export function Appointments() {
     (async () => {
       try {
         const { data } = await api.get(ApiPaths.myAppointments);
-        const items = Array.isArray(data) ? data : data?.results || [];
+        const root = data ?? {};
+        const d = root?.data ?? root;
+        const items =
+          (Array.isArray(root) && root) ||
+          (Array.isArray(root?.results) && root.results) ||
+          (Array.isArray(d) && d) ||
+          (Array.isArray(d?.results) && d.results) ||
+          (Array.isArray(d?.appointments) && d.appointments) ||
+          (Array.isArray(root?.appointments) && root.appointments) ||
+          [];
         if (!alive) return;
         setState({ loading: false, items, error: '' });
       } catch {
@@ -57,17 +66,23 @@ export function Appointments() {
   }, []);
 
   const appts = React.useMemo(() => {
-    const raw = state.items || [];
-    // backend can return {data:{appointments:[]}} depending on view; normalize a bit
-    const flat = Array.isArray(raw) ? raw : raw?.data?.appointments || raw?.appointments || [];
-    return Array.isArray(flat) ? flat : [];
+    return Array.isArray(state.items) ? state.items : [];
   }, [state.items]);
 
   const apptsOnSelected = React.useMemo(() => {
     const sel = selected;
     return appts.filter((a) => {
-      const d = (a?.date || a?.scheduled_at || a?.created_at || '').toString();
-      return d.startsWith(sel);
+      const raw = (a?.date || a?.scheduled_at || a?.scheduledAt || a?.starts_at || a?.created_at || '').toString();
+      // Accept `YYYY-MM-DD...` (ISO), or `MM/DD/YYYY` (US), etc.
+      if (raw.startsWith(sel)) return true;
+      const mdy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+      if (mdy) {
+        const mm = String(mdy[1]).padStart(2, '0');
+        const dd = String(mdy[2]).padStart(2, '0');
+        const yyyy = String(mdy[3]);
+        return `${yyyy}-${mm}-${dd}` === sel;
+      }
+      return false;
     });
   }, [appts, selected]);
 

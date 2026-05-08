@@ -17,6 +17,7 @@ from .models import (
     Provider,
     Speciality,
     Timezone,
+    PatientDocument,
 )
 
 
@@ -187,3 +188,37 @@ class HospitalSerializer(serializers.ModelSerializer):
             "is_open",
             "photo_url",
         )
+
+
+class PatientDocumentSerializer(serializers.ModelSerializer):
+    file_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = PatientDocument
+        fields = (
+            "id",
+            "patient_id",
+            "uploaded_by_id",
+            "original_name",
+            "content_type",
+            "size_bytes",
+            "file",
+            "file_url",
+            "status",
+            "error_message",
+            "created_at",
+            "processed_at",
+            "ai_summary",
+        )
+
+    def get_file_url(self, obj):
+        request = self.context.get("request")
+        if not obj.file:
+            return ""
+        try:
+            url = obj.file.url
+        except Exception:
+            return ""
+        if request is None:
+            return url
+        return request.build_absolute_uri(url)

@@ -20,7 +20,9 @@ class HospitalsListScreen extends StatefulWidget {
 }
 
 class _HospitalsListScreenState extends State<HospitalsListScreen> {
-  late final CatalogApi _api = CatalogApi(widget.apiClient);
+  late final EmergencyApiClient _mapsClient =
+      EmergencyApiClient.maps(tokenRepository: widget.apiClient.tokenRepo);
+  late final CatalogApi _api = CatalogApi(_mapsClient);
   late Future<HospitalsListResult> _future;
 
   @override

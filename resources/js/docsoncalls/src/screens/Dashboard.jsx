@@ -37,7 +37,21 @@ export function Dashboard() {
         const meData = meRes.status === 'fulfilled' ? meRes.value.data : null;
         const healthData = healthRes.status === 'fulfilled' ? healthRes.value.data : null;
 
-        const list = (x) => (Array.isArray(x) ? x : x?.results || x?.data || []);
+        const list = (x) => {
+          const root = x ?? {};
+          const d = root?.data ?? root;
+          const arr =
+            (Array.isArray(root) && root) ||
+            (Array.isArray(root?.results) && root.results) ||
+            (Array.isArray(d) && d) ||
+            (Array.isArray(d?.results) && d.results) ||
+            (Array.isArray(d?.appointments) && d.appointments) ||
+            (Array.isArray(d?.items) && d.items) ||
+            (Array.isArray(root?.appointments) && root.appointments) ||
+            (Array.isArray(root?.items) && root.items) ||
+            [];
+          return Array.isArray(arr) ? arr : [];
+        };
         const appts = apptRes.status === 'fulfilled' ? list(apptRes.value.data) : [];
         const hosps = hospRes.status === 'fulfilled' ? list(hospRes.value.data) : [];
         const provs = provRes.status === 'fulfilled' ? list(provRes.value.data) : [];

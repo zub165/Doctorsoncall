@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
+import 'package:dio/dio.dart';
 
 import '../config/api_paths.dart';
 import '../models/medical_record.dart';
@@ -94,5 +95,51 @@ class MedicalRecordsApi {
       operation: record.deleted ? 'delete' : 'upsert',
       payload: jsonStr,
     );
+  }
+
+  // --- Documents (upload → process → report) ---
+
+  Future<List<Map<String, dynamic>>> listDocuments() async {
+    final r = await _c.raw.get<dynamic>(ApiPaths.documents);
+    final data = r.data;
+    if (data is Map<String, dynamic>) {
+      final inner = ApiEnvelope.dataMap(data);
+      final list = inner?['results'] ?? data['results'] ?? inner?['documents'];
+      if (list is List) {
+        return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      }
+    }
+    if (data is List) {
+      return data.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    }
+    return const [];
+  }
+
+  Future<Map<String, dynamic>> uploadDocument({
+    required String filePath,
+    String? filename,
+    int? patientId,
+  }) async {
+    final form = FormData.fromMap({
+      if (patientId != null) 'patient_id': patientId,
+      'file': await MultipartFile.fromFile(filePath, filename: filename),
+    });
+    final r = await _c.raw.post<dynamic>(
+      ApiPaths.documents,
+      data: form,
+      options: Options(contentType: 'multipart/form-data'),
+    );
+    final data = r.data;
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return const {};
+  }
+
+  Future<Map<String, dynamic>> processDocument(int id) async {
+    final r = await _c.raw.post<dynamic>(ApiPaths.documentDetail(id));
+    final data = r.data;
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return const {};
   }
 }

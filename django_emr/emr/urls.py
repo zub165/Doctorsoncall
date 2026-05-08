@@ -55,5 +55,7 @@ urlpatterns = [
     path("timezone/", views.timezone_list),
     path("settings/general/", views.general_settings),
     path("settings/general/<str:key>/", views.general_settings),
+    path("documents/", views.patient_documents),
+    path("documents/<int:doc_id>/", views.patient_document_detail),
     path("", include(router.urls)),
 ]

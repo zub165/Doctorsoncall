@@ -12,10 +12,12 @@ class EmergencyApiClient {
   final TokenRepository tokenRepo;
   final Dio _dio = Dio();
 
-  EmergencyApiClient({TokenRepository? tokenRepository})
+  EmergencyApiClient({TokenRepository? tokenRepository, String? baseUrl})
       : tokenRepo = tokenRepository ?? TokenRepository() {
     _dio.options
-      ..baseUrl = ApiConfig.apiBaseUrl
+      ..baseUrl = (baseUrl != null && baseUrl.trim().isNotEmpty)
+          ? baseUrl.trim()
+          : ApiConfig.emrApiBaseUrl
       ..connectTimeout = const Duration(seconds: 15)
       ..receiveTimeout = const Duration(seconds: 30)
       ..headers['Accept'] = ApiHeaders.acceptJson;
@@ -45,4 +47,11 @@ class EmergencyApiClient {
   }
 
   Dio get raw => _dio;
+
+  /// Convenience constructor for maps / ER wait-time backend.
+  factory EmergencyApiClient.maps({TokenRepository? tokenRepository}) =>
+      EmergencyApiClient(
+        tokenRepository: tokenRepository,
+        baseUrl: ApiConfig.mapsApiBaseUrl,
+      );
 }

@@ -1,10 +1,12 @@
-/// Django API base: every request path is relative to [ApiConfig.apiBaseUrl] (must end with `api/`).
+/// API base URLs (must end with `api/`).
 ///
-/// **Lab / LMS (optional):** a separate origin may host **`/lab/`** — use a second client or
-/// `--dart-define=LAB_API_BASE_URL=https://host/lab/` when you wire lab features (not the same as `/api/`).
+/// This app intentionally uses **two** backends:
+/// - **EMR (Django)**: auth, appointments, records, settings, sync
+/// - **Maps / ER time (legacy)**: hospitals + map/wait-time endpoints
 ///
 /// ## 1 — Base URL (config)
-/// **`API_BASE_URL = https://YOUR_PUBLIC_HOST/api/`**
+/// - **`EMR_API_BASE_URL = https://api.docsoncalls.com/api/`**
+/// - **`MAPS_API_BASE_URL = https://api.mywaitime.com/api/`**
 ///
 /// Use **`https://host/api/`** when nginx terminates TLS on **443** (no `:3015` in the URL).
 /// Only append **`:3015`** if clients truly connect to that port on the public host.
@@ -12,14 +14,9 @@
 /// Server remains canonical: **`GET …/api/schema/`** or **`GET …/api/docs/`** (your deployment).
 /// Full index also lives in repo **`FRONTEND_API_DOCUMENTATION.md`** §13.
 ///
-/// **Production (canonical):** `https://api.mywaitime.com/api/` (see `FRONTEND_API_DOCUMENTATION.md` §2.1
-/// and repo `scripts/flutter_run_production_api.sh`.)
-///
 /// ## Examples
-/// - **HTTPS (443):** `--dart-define=API_BASE_URL=https://api.mywaitime.com/api/`
-/// - **HTTPS explicit port:** `--dart-define=API_BASE_URL=https://YOUR_DOMAIN:3015/api/`
-/// - **VPS IP (HTTP, dev only):** `--dart-define=API_BASE_URL=http://208.109.215.53:8012/api/`
-/// - **Local Django EMR:** `http://127.0.0.1:8012/api/` (see `scripts/flutter_run_ios_simulator_local_api.sh`)
+/// - **Local EMR:** `--dart-define=EMR_API_BASE_URL=http://127.0.0.1:8012/api/`
+/// - **Maps stays public:** (no override needed) `https://api.mywaitime.com/api/`
 /// - **Android emulator → Mac:** `http://10.0.2.2:PORT/api/`
 ///
 /// ## 2 — Headers (see [ApiHeaders])
@@ -36,13 +33,20 @@
 class ApiConfig {
   ApiConfig._();
 
-  static const String apiBaseUrl = String.fromEnvironment(
-    'API_BASE_URL',
-    // Default to the public nginx endpoint so real devices work out of the box.
-    // Override for local dev with:
-    //   --dart-define=API_BASE_URL=http://127.0.0.1:8012/api/
+  /// Main EMR backend (Django).
+  static const String emrApiBaseUrl = String.fromEnvironment(
+    'EMR_API_BASE_URL',
+    defaultValue: 'https://api.docsoncalls.com/api/',
+  );
+
+  /// Maps / ER time backend (legacy).
+  static const String mapsApiBaseUrl = String.fromEnvironment(
+    'MAPS_API_BASE_URL',
     defaultValue: 'https://api.mywaitime.com/api/',
   );
+
+  /// Back-compat alias for older call sites.
+  static const String apiBaseUrl = emrApiBaseUrl;
 
   /// `GET` path under [apiBaseUrl] → **`GET /api/user-data/`** when default is kept.
   static const String userMePath = String.fromEnvironment(

@@ -19,7 +19,9 @@ class HospitalDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final api = CatalogApi(apiClient);
+    final api = CatalogApi(
+      EmergencyApiClient.maps(tokenRepository: apiClient.tokenRepo),
+    );
 
     return Scaffold(
       body: FutureBuilder<HospitalDetailResult>(

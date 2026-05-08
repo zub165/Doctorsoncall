@@ -23,8 +23,11 @@ export default defineConfig({
   define: {
     'import.meta.env.VITE_ROUTER_MODE': JSON.stringify(envStr('VITE_ROUTER_MODE', 'hash')),
     'import.meta.env.VITE_ROUTER_BASENAME': JSON.stringify(envStr('VITE_ROUTER_BASENAME', '/')),
-    // GitHub Pages is HTTPS, so the API must be HTTPS too (avoid Mixed Content).
-    'import.meta.env.VITE_API_BASE_URL': JSON.stringify(envStr('VITE_API_BASE_URL', 'https://api.docsoncalls.com/api/')),
+    // GitHub Pages is HTTPS, so APIs must be HTTPS too (avoid Mixed Content).
+    // EMR (Django 8012 behind TLS)
+    'import.meta.env.VITE_EMR_API_BASE_URL': JSON.stringify(envStr('VITE_EMR_API_BASE_URL', envStr('VITE_API_BASE_URL', 'https://api.docsoncalls.com/api/'))),
+    // Maps / ER time (nginx → 3015 legacy app)
+    'import.meta.env.VITE_MAPS_API_BASE_URL': JSON.stringify(envStr('VITE_MAPS_API_BASE_URL', 'https://api.mywaitime.com/api/')),
   },
 });
 

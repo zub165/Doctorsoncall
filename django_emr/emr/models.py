@@ -289,3 +289,51 @@ class Hospital(models.Model):
     class Meta:
         db_table = "hospitals"
         ordering = ["name"]
+
+
+class PatientDocument(models.Model):
+    """
+    Patient-uploaded document (PDF/image/text) intended for doctor review.
+
+    Flow:
+    1) patient uploads file
+    2) backend extracts text (PDF/text) and/or OCRs (images)
+    3) backend generates an AI summary report for the doctor
+    """
+
+    class Status(models.TextChoices):
+        UPLOADED = "uploaded", "uploaded"
+        TEXT_EXTRACTED = "text_extracted", "text_extracted"
+        OCR_DONE = "ocr_done", "ocr_done"
+        SUMMARIZED = "summarized", "summarized"
+        ERROR = "error", "error"
+
+    patient = models.ForeignKey(
+        Patient, on_delete=models.CASCADE, related_name="documents"
+    )
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="uploaded_documents",
+    )
+    file = models.FileField(upload_to="documents/%Y/%m/%d/")
+    original_name = models.CharField(max_length=255, blank=True)
+    content_type = models.CharField(max_length=128, blank=True)
+    size_bytes = models.BigIntegerField(default=0)
+
+    extracted_text = models.TextField(blank=True)
+    ai_summary = models.TextField(blank=True)
+
+    status = models.CharField(
+        max_length=32, choices=Status.choices, default=Status.UPLOADED
+    )
+    error_message = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "patient_documents"
+        ordering = ["-id"]

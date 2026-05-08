@@ -81,6 +81,10 @@ class ApiPaths {
   /// **`POST /api/medical-records/ai-assist/`** — AI help over records (body: query, optional ids).
   static const medicalRecordsAiAssist = 'medical-records/ai-assist/';
 
+  // --- Patient documents (upload → OCR/text extract → summary report) ---
+  static const documents = 'documents/';
+  static String documentDetail(int id) => 'documents/$id/';
+
   /// Alias for [feedbackSubmit] (legacy call sites).
   static const feedback = feedbackSubmit;
 }

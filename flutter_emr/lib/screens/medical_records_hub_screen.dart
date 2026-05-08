@@ -1,8 +1,10 @@
 import 'dart:convert';
 
 import 'package:dio/dio.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:drift/drift.dart' hide Column;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/medical_record.dart';
 import '../services/emergency_api_client.dart';
@@ -27,7 +29,7 @@ class MedicalRecordsHubScreen extends StatefulWidget {
 
 class _MedicalRecordsHubScreenState extends State<MedicalRecordsHubScreen>
     with SingleTickerProviderStateMixin {
-  late final TabController _tab = TabController(length: 2, vsync: this);
+  late final TabController _tab = TabController(length: 3, vsync: this);
   late final MedicalRecordsApi _api = MedicalRecordsApi(widget.apiClient);
 
   @override
@@ -50,6 +52,7 @@ class _MedicalRecordsHubScreenState extends State<MedicalRecordsHubScreen>
             tabs: const [
               Tab(icon: Icon(Icons.folder_shared_outlined), text: 'Records'),
               Tab(icon: Icon(Icons.psychology_outlined), text: 'AI assistant'),
+              Tab(icon: Icon(Icons.attach_file_rounded), text: 'Documents'),
             ],
           ),
         ),
@@ -59,10 +62,287 @@ class _MedicalRecordsHubScreenState extends State<MedicalRecordsHubScreen>
             children: [
               _RecordsTab(api: _api, apiClient: widget.apiClient),
               _AiAssistantTab(api: _api),
+              _DocumentsTab(api: _api),
             ],
           ),
         ),
       ],
+    );
+  }
+}
+
+class _DocumentsTab extends StatefulWidget {
+  const _DocumentsTab({required this.api});
+
+  final MedicalRecordsApi api;
+
+  @override
+  State<_DocumentsTab> createState() => _DocumentsTabState();
+}
+
+class _DocumentsTabState extends State<_DocumentsTab> {
+  bool _loading = true;
+  String? _error;
+  List<Map<String, dynamic>> _docs = const [];
+  bool _uploading = false;
+  bool _processing = false;
+  int? _processingId;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  Future<void> _reload() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final docs = await widget.api.listDocuments();
+      setState(() {
+        _docs = docs;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _docs = const [];
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _pickAndUpload() async {
+    setState(() {
+      _uploading = true;
+      _error = null;
+    });
+    try {
+      final res = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'png', 'jpg', 'jpeg', 'txt'],
+      );
+      final path = res?.files.single.path;
+      if (path == null || path.isEmpty) {
+        setState(() => _uploading = false);
+        return;
+      }
+      final name = res?.files.single.name;
+      await widget.api.uploadDocument(
+        filePath: path,
+        filename: name,
+      );
+      if (!mounted) return;
+      setState(() => _uploading = false);
+      await _reload();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Uploaded. Tap Process to generate report.')),
+      );
+    } catch (e) {
+      setState(() {
+        _uploading = false;
+        _error = e.toString();
+      });
+    }
+  }
+
+  Future<void> _process(int id) async {
+    setState(() {
+      _processing = true;
+      _processingId = id;
+      _error = null;
+    });
+    try {
+      await widget.api.processDocument(id);
+      if (!mounted) return;
+      setState(() {
+        _processing = false;
+        _processingId = null;
+      });
+      await _reload();
+    } catch (e) {
+      setState(() {
+        _processing = false;
+        _processingId = null;
+        _error = e.toString();
+      });
+    }
+  }
+
+  Map<String, dynamic> _unwrapDoc(Map<String, dynamic> row) {
+    final d = row['document'];
+    if (d is Map) return Map<String, dynamic>.from(d);
+    return row;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.primary),
+      );
+    }
+    if (_error != null && _error!.isNotEmpty) {
+      return ApiAccessPlaceholder(
+        title: 'Documents unavailable',
+        message: _error!,
+        icon: Icons.attach_file_rounded,
+        onRetry: _reload,
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _reload,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Upload documents',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w800),
+                ),
+              ),
+              FilledButton.icon(
+                onPressed: _uploading ? null : _pickAndUpload,
+                icon: _uploading
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.upload_file_rounded),
+                label: Text(_uploading ? 'Uploading…' : 'Upload'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'After upload, tap Process to run OCR/text extraction and generate a doctor report.',
+            style: TextStyle(color: Colors.grey.shade700),
+          ),
+          const SizedBox(height: 16),
+          if (_docs.isEmpty)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'No documents yet.',
+                  style: TextStyle(color: Colors.grey.shade700),
+                ),
+              ),
+            )
+          else
+            ..._docs.map((row) {
+              final doc = _unwrapDoc(row);
+              final id = (doc['id'] is int)
+                  ? doc['id'] as int
+                  : int.tryParse('${doc['id'] ?? ''}');
+              final name = (doc['original_name'] ??
+                      doc['file'] ??
+                      'Document')
+                  .toString();
+              final status = (doc['status'] ?? 'uploaded').toString();
+              final err = (doc['error_message'] ?? '').toString();
+              final summary = (doc['ai_summary'] ?? '').toString();
+              final processingThis = _processing && _processingId == id;
+
+              return Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        name,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text('Status: $status',
+                          style: TextStyle(color: Colors.grey.shade700)),
+                      if (err.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(err,
+                            style: const TextStyle(
+                              color: Colors.red,
+                              fontWeight: FontWeight.w700,
+                            )),
+                      ],
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton(
+                              onPressed: (id == null || _processing)
+                                  ? null
+                                  : () => _process(id),
+                              child: processingThis
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Text('Process'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          OutlinedButton(
+                            onPressed: () async {
+                              final fileUrl = (doc['file_url'] ?? '').toString();
+                              if (fileUrl.isEmpty) return;
+                              final uri = Uri.tryParse(fileUrl);
+                              if (uri == null) return;
+                              // ignore: deprecated_member_use
+                              await launchUrl(uri, mode: LaunchMode.externalApplication);
+                            },
+                            child: const Text('View'),
+                          ),
+                        ],
+                      ),
+                      if (summary.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          'Doctor report',
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.grey.shade200),
+                          ),
+                          child: Text(summary),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              );
+            }),
+        ],
+      ),
     );
   }
 }
