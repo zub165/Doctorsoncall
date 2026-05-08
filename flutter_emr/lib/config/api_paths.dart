@@ -66,6 +66,8 @@ class ApiPaths {
   static const myAppointments = 'appointments/mine/';
   static const allAppointments = 'appointments/all/';
   static const replicateToken = 'integrations/replicate-token/';
+  static const plans = 'plans/';
+  static const roles = 'roles/';
 
   /// Prefer stable **`/api/nutrition/v1/…`** contract vs legacy analyze paths.
   static const nutritionV1 = 'nutrition/v1/';

@@ -92,6 +92,58 @@ class _AdminTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final api = EmrFeaturesApi(apiClient);
 
+    if (title == 'Roles') {
+      return _AdminCrudList(
+        title: title,
+        icon: icon,
+        load: () async {
+          final data = await api.roles();
+          final v = (data is Map ? (data['data'] ?? data['results'] ?? data) : data);
+          if (v is List) {
+            return v.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+          }
+          return const <Map<String, dynamic>>[];
+        },
+        itemTitle: (m) => (m['name'] ?? '').toString(),
+        itemSubtitle: (m) => (m['description'] ?? '').toString(),
+        trailingPill: (m) => (m['status'] ?? '').toString(),
+        editorFields: const [
+          _EditorField(keyName: 'name', label: 'Name'),
+          _EditorField(keyName: 'status', label: 'Status (active/inactive)'),
+          _EditorField(keyName: 'description', label: 'Description (optional)'),
+        ],
+        onSave: (id, patch) => api.adminPatchRole(id, patch),
+      );
+    }
+
+    if (title == 'Plans') {
+      return _AdminCrudList(
+        title: title,
+        icon: icon,
+        load: () async {
+          final data = await api.plans();
+          final v = (data is Map ? (data['data'] ?? data['results'] ?? data) : data);
+          if (v is List) {
+            return v.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+          }
+          return const <Map<String, dynamic>>[];
+        },
+        itemTitle: (m) => (m['plan_name'] ?? m['name'] ?? '').toString(),
+        itemSubtitle: (m) =>
+            '${(m['duration'] ?? '').toString()} · ${(m['price'] ?? '').toString()}',
+        trailingPill: (m) => (m['ai_bot'] ?? '').toString(),
+        editorFields: const [
+          _EditorField(keyName: 'plan_name', label: 'Plan name'),
+          _EditorField(keyName: 'duration', label: 'Duration'),
+          _EditorField(keyName: 'price', label: 'Price'),
+          _EditorField(keyName: 'number_appointments', label: 'Number of appointments'),
+          _EditorField(keyName: 'ai_bot', label: 'AI bot (yes/no)'),
+          _EditorField(keyName: 'discount', label: 'Discount (optional)'),
+        ],
+        onSave: (id, patch) => api.adminPatchPlan(id, patch),
+      );
+    }
+
     if (title == 'Countries') {
       return _AdminCrudList(
         title: title,
@@ -170,6 +222,31 @@ class _AdminTab extends StatelessWidget {
         pendingTitle: (m) => (m['name'] ?? m['full_name'] ?? '').toString(),
         pendingSubtitle: (m) => (m['email'] ?? '').toString(),
         pendingId: (m) => (m['id'] ?? 0).toString(),
+      );
+    }
+
+    if (title == 'Appointments') {
+      return _AdminCrudList(
+        title: title,
+        icon: icon,
+        load: () async {
+          final data = await api.allAppointments();
+          final root = data is Map ? data : const {};
+          final d = root['data'] is Map ? root['data'] as Map : root;
+          final list = d['appointments'];
+          if (list is List) {
+            return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+          }
+          return const <Map<String, dynamic>>[];
+        },
+        itemTitle: (m) => '${m['date'] ?? ''} ${m['time'] ?? ''}'.trim(),
+        itemSubtitle: (m) {
+          final p = m['patient'] is Map ? (m['patient'] as Map)['name'] : '';
+          final pr = m['provider'] is Map ? (m['provider'] as Map)['full_name'] : '';
+          return 'Patient: $p · Provider: $pr';
+        },
+        editorFields: const [],
+        onSave: (id, patch) async {},
       );
     }
 

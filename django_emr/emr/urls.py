@@ -6,6 +6,8 @@ from . import views
 router = DefaultRouter()
 router.register(r"countries", views.CountryViewSet, basename="country")
 router.register(r"specialities", views.SpecialityViewSet, basename="speciality")
+router.register(r"plans", views.PlanViewSet, basename="plan")
+router.register(r"roles", views.RoleViewSet, basename="role")
 router.register(r"providers", views.ProviderViewSet, basename="provider")
 router.register(r"patients", views.PatientViewSet, basename="patient")
 router.register(r"nutrition", views.NutritionEntryViewSet, basename="nutrition")

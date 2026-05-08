@@ -40,6 +40,21 @@ class Plan(models.Model):
         db_table = "plan"
 
 
+class Role(models.Model):
+    """
+    Lightweight admin-managed roles list (used by Admin Hub UI).
+    This is separate from Django auth Groups/Permissions.
+    """
+
+    name = models.CharField(max_length=128)
+    status = models.CharField(max_length=32, default="active")
+    description = models.CharField(max_length=512, blank=True)
+
+    class Meta:
+        db_table = "roles"
+        ordering = ["id"]
+
+
 class Patient(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="patient_profiles"

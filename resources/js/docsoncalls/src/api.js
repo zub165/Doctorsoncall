@@ -86,6 +86,8 @@ export const ApiPaths = {
   coursesV1: 'v1/courses/',
   countries: 'countries/',
   specialities: 'specialities/',
+  plans: 'plans/',
+  roles: 'roles/',
   providers: 'providers/',
   patients: 'patients/',
   patientsProviders: 'patients-providers/',

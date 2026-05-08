@@ -15,6 +15,7 @@ from .models import (
     Patient,
     Plan,
     Provider,
+  Role,
     Speciality,
     Timezone,
     PatientDocument,
@@ -81,6 +82,18 @@ class CountrySerializer(serializers.ModelSerializer):
 class SpecialitySerializer(serializers.ModelSerializer):
     class Meta:
         model = Speciality
+        fields = "__all__"
+
+
+class PlanSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Plan
+        fields = "__all__"
+
+
+class RoleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Role
         fields = "__all__"
 
 

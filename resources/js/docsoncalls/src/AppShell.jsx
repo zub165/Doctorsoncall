@@ -1517,6 +1517,7 @@ function ProviderApply() {
 }
 
 function AdminHubLite() {
+  const [tab, setTab] = React.useState('approvals'); // approvals | roles | plans | specialities | countries | providers | patients | appointments
   const s = useApiCall(() => api.get(ApiPaths.registrationsPending).then((r) => r.data), []);
   const [busy, setBusy] = React.useState(false);
 
@@ -1534,6 +1535,38 @@ function AdminHubLite() {
   const providers = Array.isArray(data.providers) ? data.providers : [];
   const patients = Array.isArray(data.patients) ? data.patients : [];
 
+  const roles = useApiCall(
+    () => (tab === 'roles' ? api.get(ApiPaths.roles).then((r) => r.data) : Promise.resolve(null)),
+    [tab],
+  );
+  const plans = useApiCall(
+    () => (tab === 'plans' ? api.get(ApiPaths.plans).then((r) => r.data) : Promise.resolve(null)),
+    [tab],
+  );
+  const countries = useApiCall(
+    () => (tab === 'countries' ? api.get(ApiPaths.countries).then((r) => r.data) : Promise.resolve(null)),
+    [tab],
+  );
+  const specialities = useApiCall(
+    () => (tab === 'specialities' ? api.get(ApiPaths.specialities).then((r) => r.data) : Promise.resolve(null)),
+    [tab],
+  );
+  const allAppts = useApiCall(
+    () => (tab === 'appointments' ? api.get(ApiPaths.allAppointments).then((r) => r.data) : Promise.resolve(null)),
+    [tab],
+  );
+
+  function unwrapList(payload) {
+    const root = payload?.data ?? payload ?? {};
+    if (Array.isArray(root)) return root;
+    if (Array.isArray(root?.results)) return root.results;
+    const d = root?.data ?? root;
+    if (Array.isArray(d)) return d;
+    if (Array.isArray(d?.results)) return d.results;
+    if (Array.isArray(d?.appointments)) return d.appointments;
+    return [];
+  }
+
   return (
     <div className="dc-row" style={{ gap: 14 }}>
       <div className="dc-appbar">
@@ -1542,17 +1575,182 @@ function AdminHubLite() {
           <span style={{ opacity: 0.9, fontWeight: 900 }}>☰</span>
         </div>
         <div className="dc-tabs" role="tablist" aria-label="Admin tabs">
-          <button className="dc-tab" type="button" data-active="true">
+          <button className="dc-tab" type="button" data-active={tab === 'approvals' ? 'true' : 'false'} onClick={() => setTab('approvals')}>
+            Approvals
+          </button>
+          <button className="dc-tab" type="button" data-active={tab === 'roles' ? 'true' : 'false'} onClick={() => setTab('roles')}>
             Roles
           </button>
-          <button className="dc-tab" type="button" data-active="false">
+          <button className="dc-tab" type="button" data-active={tab === 'plans' ? 'true' : 'false'} onClick={() => setTab('plans')}>
             Plans
           </button>
-          <button className="dc-tab" type="button" data-active="false">
+          <button className="dc-tab" type="button" data-active={tab === 'specialities' ? 'true' : 'false'} onClick={() => setTab('specialities')}>
             Specialities
+          </button>
+          <button className="dc-tab" type="button" data-active={tab === 'countries' ? 'true' : 'false'} onClick={() => setTab('countries')}>
+            Countries
+          </button>
+          <button className="dc-tab" type="button" data-active={tab === 'appointments' ? 'true' : 'false'} onClick={() => setTab('appointments')}>
+            Appointments
           </button>
         </div>
       </div>
+
+      {tab !== 'approvals' ? (
+        <div className="dc-card" style={{ padding: 16, background: '#f6e7e7' }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <div className="dc-avatar">🧩</div>
+              <div>
+                <div style={{ fontWeight: 950, fontSize: 18 }}>{tab.toUpperCase()}</div>
+                <div style={{ color: 'var(--dc-muted)', fontSize: 13, fontWeight: 800 }}>Connected to backend API</div>
+              </div>
+            </div>
+            <button className="dc-btn" onClick={() => window.location.reload()} style={{ fontWeight: 950 }}>
+              ↻
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {tab === 'roles' ? (
+        roles.loading ? (
+          <div className="dc-card" style={{ color: 'var(--dc-muted)' }}>
+            Loading…
+          </div>
+        ) : roles.error ? (
+          <div className="dc-card" style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>
+            {roles.error}
+          </div>
+        ) : (
+          <div className="dc-list">
+            {unwrapList(roles.data).slice(0, 200).map((r, idx) => (
+              <div key={r?.id || idx} className="dc-list-row">
+                <div className="dc-list-left">
+                  <div className="dc-avatar">🛡️</div>
+                  <div className="dc-list-text">
+                    <div className="dc-list-title">{(r?.name || 'Role').toString()}</div>
+                    <div className="dc-list-sub">{(r?.description || r?.status || '').toString()}</div>
+                  </div>
+                </div>
+                <div style={{ color: 'var(--dc-muted)', fontWeight: 900 }}>{(r?.status || '').toString()}</div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : null}
+
+      {tab === 'plans' ? (
+        plans.loading ? (
+          <div className="dc-card" style={{ color: 'var(--dc-muted)' }}>
+            Loading…
+          </div>
+        ) : plans.error ? (
+          <div className="dc-card" style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>
+            {plans.error}
+          </div>
+        ) : (
+          <div className="dc-list">
+            {unwrapList(plans.data).slice(0, 200).map((p, idx) => (
+              <div key={p?.id || idx} className="dc-list-row">
+                <div className="dc-list-left">
+                  <div className="dc-avatar">💳</div>
+                  <div className="dc-list-text">
+                    <div className="dc-list-title">{(p?.plan_name || 'Plan').toString()}</div>
+                    <div className="dc-list-sub">
+                      {(p?.duration || '').toString()} · ${(p?.price || '').toString()} · appts: {(p?.number_appointments || '').toString()}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ color: 'var(--dc-muted)', fontWeight: 900 }}>{(p?.ai_bot || '').toString()}</div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : null}
+
+      {tab === 'countries' ? (
+        countries.loading ? (
+          <div className="dc-card" style={{ color: 'var(--dc-muted)' }}>
+            Loading…
+          </div>
+        ) : countries.error ? (
+          <div className="dc-card" style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>
+            {countries.error}
+          </div>
+        ) : (
+          <div className="dc-list">
+            {unwrapList(countries.data).slice(0, 200).map((c, idx) => (
+              <div key={c?.id || idx} className="dc-list-row">
+                <div className="dc-list-left">
+                  <div className="dc-avatar">🌍</div>
+                  <div className="dc-list-text">
+                    <div className="dc-list-title">{(c?.country_name || 'Country').toString()}</div>
+                    <div className="dc-list-sub">{(c?.country_code || '').toString()}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : null}
+
+      {tab === 'specialities' ? (
+        specialities.loading ? (
+          <div className="dc-card" style={{ color: 'var(--dc-muted)' }}>
+            Loading…
+          </div>
+        ) : specialities.error ? (
+          <div className="dc-card" style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>
+            {specialities.error}
+          </div>
+        ) : (
+          <div className="dc-list">
+            {unwrapList(specialities.data).slice(0, 200).map((sp, idx) => (
+              <div key={sp?.id || idx} className="dc-list-row">
+                <div className="dc-list-left">
+                  <div className="dc-avatar">🩺</div>
+                  <div className="dc-list-text">
+                    <div className="dc-list-title">{(sp?.speciality_name || 'Speciality').toString()}</div>
+                    <div className="dc-list-sub">{(sp?.country_id || sp?.country || '').toString()}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : null}
+
+      {tab === 'appointments' ? (
+        allAppts.loading ? (
+          <div className="dc-card" style={{ color: 'var(--dc-muted)' }}>
+            Loading…
+          </div>
+        ) : allAppts.error ? (
+          <div className="dc-card" style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>
+            {allAppts.error}
+          </div>
+        ) : (
+          <div className="dc-list">
+            {unwrapList(allAppts.data).slice(0, 200).map((a, idx) => (
+              <div key={a?.id || idx} className="dc-list-row">
+                <div className="dc-list-left">
+                  <div className="dc-avatar">📅</div>
+                  <div className="dc-list-text">
+                    <div className="dc-list-title">
+                      {(a?.patient?.name || 'Patient').toString()} → {(a?.provider?.full_name || 'Provider').toString()}
+                    </div>
+                    <div className="dc-list-sub">
+                      {(a?.date || '').toString()} {(a?.time || '').toString()}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ color: 'var(--dc-muted)', fontWeight: 900 }}>{(a?.approved || '').toString()}</div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : null}
 
       <div className="dc-card" style={{ padding: 16, background: '#f6e7e7' }}>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
@@ -1567,7 +1765,7 @@ function AdminHubLite() {
         </div>
       </div>
 
-      {s.loading ? (
+      {tab !== 'approvals' ? null : s.loading ? (
         <div className="dc-card" style={{ color: 'var(--dc-muted)' }}>
           Loading…
         </div>
@@ -1606,7 +1804,7 @@ function AdminHubLite() {
         </div>
       </div>
 
-      {s.loading ? null : s.error ? null : patients.length === 0 ? (
+      {tab !== 'approvals' ? null : s.loading ? null : s.error ? null : patients.length === 0 ? (
         <div style={{ color: 'var(--dc-muted)', fontWeight: 800, paddingLeft: 6 }}>No pending registrations.</div>
       ) : (
         <div className="dc-list">

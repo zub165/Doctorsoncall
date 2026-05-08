@@ -32,7 +32,9 @@ from .models import (
     MedicalRecord,
     NutritionEntry,
     Patient,
+    Plan,
     Provider,
+    Role,
     Speciality,
     Timezone,
     PatientDocument,
@@ -49,8 +51,10 @@ from .serializers import (
     MedicalRecordSerializer,
     NutritionEntrySerializer,
     PatientSerializer,
+    PlanSerializer,
     ProviderListSerializer,
     RegisterSerializer,
+    RoleSerializer,
     SpecialitySerializer,
     TimezoneSerializer,
     PatientDocumentSerializer,
@@ -1519,6 +1523,18 @@ class CountryViewSet(viewsets.ModelViewSet):
 class SpecialityViewSet(viewsets.ModelViewSet):
     queryset = Speciality.objects.all()
     serializer_class = SpecialitySerializer
+    permission_classes = [_ReadAnyWriteAdmin]
+
+
+class PlanViewSet(viewsets.ModelViewSet):
+    queryset = Plan.objects.all()
+    serializer_class = PlanSerializer
+    permission_classes = [_ReadAnyWriteAdmin]
+
+
+class RoleViewSet(viewsets.ModelViewSet):
+    queryset = Role.objects.all()
+    serializer_class = RoleSerializer
     permission_classes = [_ReadAnyWriteAdmin]
 
 

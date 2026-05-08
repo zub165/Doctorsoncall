@@ -69,6 +69,32 @@ class EmrFeaturesApi {
     );
   }
 
+  Future<dynamic> plans() async {
+    final r = await _c.raw.get<dynamic>(ApiPaths.plans);
+    return r.data;
+  }
+
+  Future<void> adminPatchPlan(int id, Map<String, dynamic> patch) async {
+    await _c.raw.patch<dynamic>(
+      '${ApiPaths.plans}$id/',
+      data: patch,
+      options: Options(contentType: Headers.jsonContentType),
+    );
+  }
+
+  Future<dynamic> roles() async {
+    final r = await _c.raw.get<dynamic>(ApiPaths.roles);
+    return r.data;
+  }
+
+  Future<void> adminPatchRole(int id, Map<String, dynamic> patch) async {
+    await _c.raw.patch<dynamic>(
+      '${ApiPaths.roles}$id/',
+      data: patch,
+      options: Options(contentType: Headers.jsonContentType),
+    );
+  }
+
   Future<dynamic> myAppointments() async {
     final r = await _c.raw.get<dynamic>(ApiPaths.myAppointments);
     return r.data;
