@@ -144,38 +144,27 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Choose who is signing in, then enter your credentials',
+                            'Choose who is signing in, then enter your credentials.',
                             textAlign: TextAlign.center,
                             style: theme.textTheme.bodyMedium?.copyWith(
-                              color: Colors.grey.shade600,
+                              color: Colors.grey.shade700,
+                              height: 1.35,
                             ),
                           ),
                           const SizedBox(height: 20),
-                          SegmentedButton<LoginPortal>(
-                            segments: LoginPortal.values
-                                .map(
-                                  (p) => ButtonSegment<LoginPortal>(
-                                    value: p,
-                                    icon: Icon(_portalIcon(p), size: 20),
-                                    label: Text(
-                                      p.title,
-                                      style: const TextStyle(fontSize: 13),
-                                    ),
-                                    tooltip: p.subtitle,
-                                  ),
-                                )
-                                .toList(growable: false),
-                            selected: {_portal},
-                            onSelectionChanged: (selection) =>
-                                setState(() => _portal = selection.first),
+                          _LoginPortalPicker(
+                            selected: _portal,
+                            onChanged: (p) => setState(() => _portal = p),
+                            portalIcon: _portalIcon,
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 12),
                           Text(
                             _portal.subtitle,
                             textAlign: TextAlign.center,
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: Colors.grey.shade600,
+                              color: Colors.grey.shade700,
                               fontStyle: FontStyle.italic,
+                              height: 1.35,
                             ),
                           ),
                           const SizedBox(height: 28),
@@ -257,20 +246,29 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          OutlinedButton(
-                            onPressed: _loading
-                                ? null
-                                : () {
-                                    Navigator.of(context).pushReplacement(
-                                      MaterialPageRoute<void>(
-                                        builder: (_) =>
-                                            AppShell(apiClient: _client),
-                                      ),
-                                    );
-                                  },
-                            child: const Text('Continue as guest'),
+                          SizedBox(
+                            height: 52,
+                            child: OutlinedButton(
+                              onPressed: _loading
+                                  ? null
+                                  : () {
+                                      Navigator.of(context).pushReplacement(
+                                        MaterialPageRoute<void>(
+                                          builder: (_) =>
+                                              AppShell(apiClient: _client),
+                                        ),
+                                      );
+                                    },
+                              child: const Text(
+                                'Continue as guest',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
                           ),
-                          const SizedBox(height: 20),
+                          const SizedBox(height: 28),
                           Row(
                             children: [
                               const Expanded(child: Divider()),
@@ -288,14 +286,16 @@ class _LoginScreenState extends State<LoginScreen> {
                               const Expanded(child: Divider()),
                             ],
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 20),
                           if (_portal == LoginPortal.administrator)
                             Text(
                               'Administrator accounts are created by your clinic or IT '
                               'team—they cannot be registered in the app.',
                               textAlign: TextAlign.center,
                               style: theme.textTheme.bodySmall?.copyWith(
-                                color: Colors.grey.shade700,
+                                color: Colors.grey.shade800,
+                                fontSize: 13,
+                                height: 1.45,
                               ),
                             )
                           else
@@ -326,6 +326,132 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Role selector: equal-width tiles so labels never break mid-word; uses brand reds.
+class _LoginPortalPicker extends StatelessWidget {
+  const _LoginPortalPicker({
+    required this.selected,
+    required this.onChanged,
+    required this.portalIcon,
+  });
+
+  final LoginPortal selected;
+  final ValueChanged<LoginPortal> onChanged;
+  final IconData Function(LoginPortal p) portalIcon;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.grey.shade300.withValues(alpha: 0.8)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(6),
+        child: Row(
+          children: [
+            for (var i = 0; i < LoginPortal.values.length; i++) ...[
+              Expanded(
+                child: _LoginPortalTile(
+                  portal: LoginPortal.values[i],
+                  selected: selected == LoginPortal.values[i],
+                  icon: portalIcon(LoginPortal.values[i]),
+                  onTap: () => onChanged(LoginPortal.values[i]),
+                ),
+              ),
+              if (i < LoginPortal.values.length - 1) const SizedBox(width: 8),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LoginPortalTile extends StatelessWidget {
+  const _LoginPortalTile({
+    required this.portal,
+    required this.selected,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final LoginPortal portal;
+  final bool selected;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = AppColors.primary;
+    return Tooltip(
+      message: '${portal.title} — ${portal.subtitle}',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+            decoration: BoxDecoration(
+              color: selected
+                  ? primary.withValues(alpha: 0.12)
+                  : Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: selected ? primary : Colors.grey.shade300,
+                width: selected ? 1.75 : 1,
+              ),
+              boxShadow: selected
+                  ? [
+                      BoxShadow(
+                        color: primary.withValues(alpha: 0.18),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  icon,
+                  size: 22,
+                  color: selected ? primary : Colors.grey.shade700,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  portal.compactTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                    color: selected ? primary : Colors.grey.shade800,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+                if (selected) ...[
+                  const SizedBox(height: 4),
+                  Icon(
+                    Icons.check_circle_rounded,
+                    size: 16,
+                    color: primary,
+                  ),
+                ],
+              ],
             ),
           ),
         ),

@@ -10,13 +10,14 @@ class EmrFeaturesApi {
   final EmergencyApiClient _c;
 
   Future<dynamic> registrationsPending() async {
-    final r = await _c.raw.get<dynamic>('/registrations/pending/');
+    // Paths must be relative to baseUrl (`…/api/`); a leading `/` drops `/api/` in Dio.
+    final r = await _c.raw.get<dynamic>(ApiPaths.registrationsPending);
     return r.data;
   }
 
   Future<dynamic> registrationsApprove({required String kind, required int id}) async {
     final r = await _c.raw.post<dynamic>(
-      '/registrations/approve/',
+      ApiPaths.registrationsApprove,
       data: {'kind': kind, 'id': id},
       options: Options(contentType: Headers.jsonContentType),
     );
@@ -31,7 +32,7 @@ class EmrFeaturesApi {
     String patientHint = '',
   }) async {
     final r = await _c.raw.post<dynamic>(
-      '/imports/submit/',
+      ApiPaths.importsSubmit,
       data: {
         'source_url': sourceUrl,
         'patient_email': patientEmail,
@@ -144,7 +145,7 @@ class EmrFeaturesApi {
     String? bio,
   }) async {
     final r = await _c.raw.post<dynamic>(
-      '/providers/apply/',
+      ApiPaths.providersApply,
       data: {
         'full_name': fullName,
         'email': email,

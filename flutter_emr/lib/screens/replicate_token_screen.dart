@@ -4,6 +4,8 @@ import '../config/api_config.dart';
 import '../config/api_paths.dart';
 import '../services/emergency_api_client.dart';
 import '../services/emr_features_api.dart';
+import '../theme/app_theme.dart';
+import 'admin_hub_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key, required this.apiClient});
@@ -102,6 +104,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             );
           }
           final s = snap.data!;
+          final showAdminHub = _isStaffRole(s.role);
           return ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(16),
@@ -135,6 +138,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 badText: 'Not configured',
                 subtitle: s.replicateMessage.isEmpty ? null : s.replicateMessage,
               ),
+              if (showAdminHub) ...[
+                const SizedBox(height: 24),
+                Text(
+                  'Administration',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 10),
+                Card(
+                  clipBehavior: Clip.antiAlias,
+                  child: ListTile(
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.admin_panel_settings_outlined,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    title: const Text(
+                      'Admin hub',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    subtitle: Text(
+                      'Pending approvals, providers, patients, appointments',
+                      style: TextStyle(
+                        color: Colors.grey.shade700,
+                        fontSize: 13,
+                        height: 1.35,
+                      ),
+                    ),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () {
+                      Navigator.of(context).push<void>(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              AdminHubScreen(apiClient: widget.apiClient),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
               const SizedBox(height: 8),
               Text(
                 'Pull down to refresh status.',
@@ -147,6 +197,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
         },
       ),
     );
+  }
+
+  /// Matches `GET /api/doctor-on-call/me/` role values used by the backend.
+  bool _isStaffRole(String role) {
+    final r = role.toLowerCase().trim();
+    return r == 'admin' ||
+        r == 'administrator' ||
+        r == 'staff' ||
+        r.contains('admin');
   }
 
   Widget _kvCard(String k, String v) {

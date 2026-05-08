@@ -30,34 +30,48 @@ class AdminHubScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const primary = Color(0xFFD32F2F);
+    final canPop = Navigator.canPop(context);
+    // Scaffold gives Material context; TabBar must have a Material ancestor.
+    // Opening from Settings ([Navigator.push]) had no Material above this widget.
     return DefaultTabController(
       length: _tabs.length,
-      child: Column(
-        children: [
-          Container(
-            color: const Color(0xFFD32F2F),
-            child: TabBar(
-              isScrollable: true,
-              labelColor: Colors.white,
-              unselectedLabelColor: Colors.white70,
-              indicatorColor: Colors.white,
-              indicatorWeight: 3,
-              tabs: [for (final t in _tabs) Tab(text: t)],
+      child: Scaffold(
+        appBar: canPop
+            ? AppBar(
+                title: const Text('Admin hub'),
+                backgroundColor: primary,
+                foregroundColor: Colors.white,
+              )
+            : null,
+        body: Column(
+          children: [
+            Material(
+              color: primary,
+              elevation: 0,
+              child: TabBar(
+                isScrollable: true,
+                labelColor: Colors.white,
+                unselectedLabelColor: Colors.white70,
+                indicatorColor: Colors.white,
+                indicatorWeight: 3,
+                tabs: [for (final t in _tabs) Tab(text: t)],
+              ),
             ),
-          ),
-          Expanded(
-            child: TabBarView(
-              children: [
-                for (int i = 0; i < _tabs.length; i++)
-                  _AdminTab(
-                    title: _tabs[i],
-                    icon: _icons[i],
-                    apiClient: apiClient,
-                  ),
-              ],
+            Expanded(
+              child: TabBarView(
+                children: [
+                  for (int i = 0; i < _tabs.length; i++)
+                    _AdminTab(
+                      title: _tabs[i],
+                      icon: _icons[i],
+                      apiClient: apiClient,
+                    ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

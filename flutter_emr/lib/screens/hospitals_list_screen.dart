@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../models/hospital.dart';
 import '../services/catalog_api.dart';
@@ -40,7 +42,6 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
 
     return Column(
       children: [
-        _MapHeader(),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           child: TextField(
@@ -190,9 +191,11 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
                 if (rows.isEmpty) {
                   return ListView(
                     physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.only(bottom: 24),
                     children: [
+                      _HospitalMapPreview(hospitals: result.hospitals),
                       SizedBox(
-                        height: MediaQuery.of(context).size.height * 0.18,
+                        height: MediaQuery.of(context).size.height * 0.12,
                       ),
                       Icon(
                         Icons.local_hospital_outlined,
@@ -223,9 +226,12 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
 
                 return ListView.builder(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                  itemCount: rows.length + 1,
+                  itemCount: rows.length + 2,
                   itemBuilder: (context, i) {
                     if (i == 0) {
+                      return _HospitalMapPreview(hospitals: result.hospitals);
+                    }
+                    if (i == 1) {
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 10, top: 6),
                         child: Row(
@@ -272,7 +278,7 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
                         ),
                       );
                     }
-                    final h = rows[i - 1];
+                    final h = rows[i - 2];
                     return _HospitalCard(
                       hospital: h,
                       onTap: () {
@@ -332,13 +338,124 @@ Widget _choiceChip({
   );
 }
 
-class _MapHeader extends StatelessWidget {
+/// OpenStreetMap tiles + pins using lat/lng from [CatalogApi.loadHospitalsList].
+class _HospitalMapPreview extends StatelessWidget {
+  const _HospitalMapPreview({required this.hospitals});
+
+  final List<Hospital> hospitals;
+
+  static List<Hospital> _withCoords(List<Hospital> hs) => hs
+      .where((h) => h.latitude.abs() > 1e-6 || h.longitude.abs() > 1e-6)
+      .toList();
+
+  static LatLng _center(List<Hospital> pts) {
+    if (pts.isEmpty) return const LatLng(37.323, -122.032);
+    var la = 0.0;
+    var ln = 0.0;
+    for (final h in pts) {
+      la += h.latitude;
+      ln += h.longitude;
+    }
+    return LatLng(la / pts.length, ln / pts.length);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pts = _withCoords(hospitals);
+    if (pts.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 6),
+        child: _MapPlaceholder(),
+      );
+    }
+    final center = _center(pts);
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, bottom: 6),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: SizedBox(
+          height: 170,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              FlutterMap(
+                options: MapOptions(
+                  initialCenter: center,
+                  initialZoom: 11,
+                  interactionOptions: InteractionOptions(
+                    flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+                  ),
+                  keepAlive: true,
+                ),
+                children: [
+                  TileLayer(
+                    urlTemplate:
+                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.emergencytime.app.emergency_time',
+                  ),
+                  MarkerLayer(
+                    markers: [
+                      for (final h in pts)
+                        Marker(
+                          point: LatLng(h.latitude, h.longitude),
+                          width: 40,
+                          height: 40,
+                          alignment: Alignment.bottomCenter,
+                          child: Icon(
+                            Icons.location_on_rounded,
+                            color: AppColors.primary,
+                            size: 40,
+                            shadows: const [
+                              Shadow(
+                                blurRadius: 3,
+                                offset: Offset(0, 1),
+                                color: Colors.black38,
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  color: Colors.black.withValues(alpha: 0.5),
+                  child: Text(
+                    '© OpenStreetMap contributors · Markers: GET /api/hospitals/',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      height: 1.25,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Decorative fallback when there are no coordinates or offline (no OSM tiles).
+class _MapPlaceholder extends StatelessWidget {
+  const _MapPlaceholder();
+
   @override
   Widget build(BuildContext context) {
     return Container(
       height: 170,
       width: double.infinity,
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      margin: EdgeInsets.zero,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
         gradient: LinearGradient(
@@ -380,9 +497,9 @@ class _MapHeader extends StatelessWidget {
             top: 14,
             child: Column(
               children: [
-                _zoomButton(Icons.add),
+                _zoomButtonPlaceholder(Icons.add),
                 const SizedBox(height: 10),
-                _zoomButton(Icons.remove),
+                _zoomButtonPlaceholder(Icons.remove),
               ],
             ),
           ),
@@ -391,7 +508,7 @@ class _MapHeader extends StatelessWidget {
     );
   }
 
-  Widget _zoomButton(IconData icon) {
+  Widget _zoomButtonPlaceholder(IconData icon) {
     return Container(
       width: 42,
       height: 42,

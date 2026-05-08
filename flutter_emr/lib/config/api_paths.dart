@@ -56,6 +56,12 @@ class ApiPaths {
   static const providersList = 'providers/';
   static const patientsList = 'patients/';
   static const patientsProvidersCross = 'patients-providers/';
+  /// Admin: pending patient + provider registrations (staff token).
+  static const registrationsPending = 'registrations/pending/';
+  static const registrationsApprove = 'registrations/approve/';
+  static const importsSubmit = 'imports/submit/';
+  /// Doctor applies to become a provider (`POST`).
+  static const providersApply = 'providers/apply/';
   static const storeAppointment = 'appointments/';
   static const myAppointments = 'appointments/mine/';
   static const allAppointments = 'appointments/all/';

@@ -16,6 +16,13 @@ enum LoginPortal {
         LoginPortal.administrator => 'Administrator',
       };
 
+  /// Short label for tight layouts (e.g. phone login row).
+  String get compactTitle => switch (this) {
+        LoginPortal.patient => 'Patient',
+        LoginPortal.doctor => 'Doctor',
+        LoginPortal.administrator => 'Admin',
+      };
+
   String get subtitle => switch (this) {
         LoginPortal.patient => 'Book care, records & visits',
         LoginPortal.doctor => 'Clinical & provider workspace',
