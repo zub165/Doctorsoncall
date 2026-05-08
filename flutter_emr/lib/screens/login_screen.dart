@@ -53,6 +53,23 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  String _messageFromDio(DioException e) {
+    final code = e.response?.statusCode;
+    final data = e.response?.data;
+    if (data is Map) {
+      final m = Map<String, dynamic>.from(data);
+      final msg = (m['message'] ?? m['detail'] ?? m['non_field_errors'])?.toString().trim();
+      if (msg != null && msg.isNotEmpty) return msg;
+      final errs = m['errors'];
+      if (errs is Map && errs.isNotEmpty) return errs.values.first.toString();
+    }
+    if (code == 401) return 'Invalid email or password.';
+    if (code == 403) {
+      return 'This account cannot use this sign-in lane (e.g. doctor not approved yet).';
+    }
+    return 'Sign-in failed (${code ?? 'network'}).';
+  }
+
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     setState(() => _loading = true);
@@ -68,9 +85,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     } on DioException catch (e) {
-      final msg = e.response?.data is Map<String, dynamic>
-          ? '${(e.response!.data as Map)['message'] ?? e.message}'
-          : (e.message ?? 'Request failed');
+      final msg = _messageFromDio(e);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     } catch (e) {
