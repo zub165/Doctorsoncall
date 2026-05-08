@@ -815,14 +815,62 @@ function SoapNotes() {
   const [soap, setSoap] = React.useState({ s: '', o: '', a: '', p: '' });
   const [ai, setAi] = React.useState({ loading: false, error: '' });
 
+  function unwrapAiAssist(data) {
+    if (data && data.status === 'success' && data.data && typeof data.data === 'object') {
+      return data.data;
+    }
+    return data;
+  }
+
+  function parseSoapFromText(answer) {
+    if (!answer || typeof answer !== 'string') return null;
+    try {
+      const t = answer.trim();
+      const start = t.indexOf('{');
+      const end = t.lastIndexOf('}');
+      if (start < 0 || end <= start) return null;
+      const m = JSON.parse(t.slice(start, end + 1));
+      if (!m || typeof m !== 'object') return null;
+      return {
+        s: String(m.subjective ?? ''),
+        o: String(m.objective ?? ''),
+        a: String(m.assessment ?? ''),
+        p: String(m.plan ?? ''),
+      };
+    } catch {
+      return null;
+    }
+  }
+
   async function aiAssist() {
     const text = raw.trim();
     if (!text) return;
     setAi({ loading: true, error: '' });
     try {
-      const { data } = await api.post(ApiPaths.medicalRecordsAiAssist, { query: `Convert to SOAP:\n\n${text}` });
-      const out = JSON.stringify(data, null, 2);
-      setSoap((s) => ({ ...s, s: out }));
+      const prompt = `Convert the following clinician dictation into a SOAP note.
+Return STRICT JSON with keys: subjective, objective, assessment, plan.
+No markdown, no extra keys.
+
+DICTATION:\n${text}`;
+      const { data } = await api.post(ApiPaths.medicalRecordsAiAssist, {
+        query: prompt,
+        kind: 'soap',
+      });
+      const inner = unwrapAiAssist(data);
+      const sk = inner?.soap;
+      if (sk && typeof sk === 'object') {
+        setSoap({
+          s: String(sk.subjective ?? ''),
+          o: String(sk.objective ?? ''),
+          a: String(sk.assessment ?? ''),
+          p: String(sk.plan ?? ''),
+        });
+      } else {
+        const answer = String(inner?.answer ?? inner?.summary ?? '').trim();
+        const parsed = parseSoapFromText(answer);
+        if (parsed) setSoap(parsed);
+        else setSoap({ s: answer, o: '', a: '', p: '' });
+      }
       setAi({ loading: false, error: '' });
     } catch (err) {
       const msg = err?.response?.data?.message || err?.response?.data?.detail || 'AI Assist failed';

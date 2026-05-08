@@ -54,10 +54,15 @@ class MedicalRecordsApi {
   Future<Map<String, dynamic>> aiAssist({
     required String query,
     List<String>? recordIds,
+    String? kind,
   }) async {
     final payload = <String, dynamic>{'query': query};
     if (recordIds != null && recordIds.isNotEmpty) {
       payload['record_ids'] = recordIds;
+    }
+    final k = kind?.trim();
+    if (k != null && k.isNotEmpty) {
+      payload['kind'] = k;
     }
     final res = await _c.raw.post<Map<String, dynamic>>(
       ApiPaths.medicalRecordsAiAssist,

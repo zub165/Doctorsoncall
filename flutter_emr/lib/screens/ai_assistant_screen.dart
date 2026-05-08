@@ -327,30 +327,46 @@ No markdown, no extra keys.
 DICTATION:
 $text
 ''';
-      final res = await MedicalRecordsApi(widget.apiClient).aiAssist(query: prompt);
-      final raw = (res['answer'] ?? res['response'] ?? res['text'] ?? res).toString();
-      final parsed = _parseSoap(raw);
-      if (parsed != null) {
-        _subjective.text = parsed['subjective'] ?? '';
-        _objective.text = parsed['objective'] ?? '';
-        _assessment.text = parsed['assessment'] ?? '';
-        _plan.text = parsed['plan'] ?? '';
+      final res = await MedicalRecordsApi(widget.apiClient).aiAssist(
+        query: prompt,
+        kind: 'soap',
+      );
+      final soapMap = res['soap'];
+      if (soapMap is Map) {
+        final m = Map<String, dynamic>.from(soapMap);
+        _subjective.text = (m['subjective'] ?? '').toString();
+        _objective.text = (m['objective'] ?? '').toString();
+        _assessment.text = (m['assessment'] ?? '').toString();
+        _plan.text = (m['plan'] ?? '').toString();
       } else {
-        // fallback: simple headings split
-        final fallback = _splitByHeadings(text);
-        _subjective.text = fallback['subjective'] ?? _subjective.text;
-        _objective.text = fallback['objective'] ?? _objective.text;
-        _assessment.text = fallback['assessment'] ?? _assessment.text;
-        _plan.text = fallback['plan'] ?? _plan.text;
+        final raw =
+            (res['answer'] ?? res['response'] ?? res['text'] ?? res).toString();
+        final parsed = _parseSoap(raw);
+        if (parsed != null) {
+          _subjective.text = parsed['subjective'] ?? '';
+          _objective.text = parsed['objective'] ?? '';
+          _assessment.text = parsed['assessment'] ?? '';
+          _plan.text = parsed['plan'] ?? '';
+        } else {
+          final fallback = _splitByHeadings(raw);
+          if (fallback.isNotEmpty) {
+            _subjective.text = fallback['subjective'] ?? '';
+            _objective.text = fallback['objective'] ?? '';
+            _assessment.text = fallback['assessment'] ?? '';
+            _plan.text = fallback['plan'] ?? '';
+          } else {
+            _subjective.text = raw;
+          }
+        }
       }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('SOAP filled')),
       );
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('AI assist failed (offline?)')),
+        SnackBar(content: Text('AI assist failed: $e')),
       );
     } finally {
       if (mounted) setState(() => _busy = false);

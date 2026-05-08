@@ -1988,22 +1988,33 @@ def medical_record_detail(request, record_id):
 @authentication_classes([TokenAuthentication, SessionAuthentication])
 @permission_classes([IsAuthenticated])
 def medical_records_ai_assist(request):
-    """`POST /api/medical-records/ai-assist/` body: query, optional record_ids."""
+    """`POST /api/medical-records/ai-assist/` body: query, optional record_ids, optional kind."""
     body = request.data if isinstance(request.data, dict) else {}
     q = str(body.get("query") or body.get("prompt") or "")
     if not q.strip():
         return _error({"query": ["query (or prompt) is required"]})
+
+    kind = str(body.get("kind") or "").strip().lower()
+    soap_mode = kind in ("soap", "doctor_soap", "soap_note")
 
     # Call local Ollama (no streaming).
     base = (getattr(settings, "OLLAMA_BASE_URL", "") or "").strip() or "http://127.0.0.1:11434"
     model = (getattr(settings, "OLLAMA_MODEL", "") or "").strip() or "llama3.1"
     url = base.rstrip("/") + "/api/generate"
 
-    system = (
-        "You are a medical assistant. Provide general information only, not a diagnosis. "
-        "If symptoms sound severe (chest pain, trouble breathing, stroke signs, severe bleeding), "
-        "recommend urgent/emergency care. Keep it concise with bullet points and next steps."
-    )
+    if soap_mode:
+        system = (
+            "You help clinicians structure visit documentation. Output ONLY valid JSON, no markdown, "
+            'no prose before or after. Use exactly these keys: "subjective", "objective", '
+            '"assessment", "plan". Strings only. Be concise; do not invent facts not stated '
+            "in the input. Flag generic red-flag symptoms if explicitly mentioned."
+        )
+    else:
+        system = (
+            "You are a medical assistant. Provide general information only, not a diagnosis. "
+            "If symptoms sound severe (chest pain, trouble breathing, stroke signs, severe bleeding), "
+            "recommend urgent/emergency care. Keep it concise with bullet points and next steps."
+        )
     prompt = f"{system}\n\nUSER:\n{q}\n\nASSISTANT:\n"
 
     try:
@@ -2026,14 +2037,35 @@ def medical_records_ai_assist(request):
         answer = str(out.get("response") or "").strip()
         if not answer:
             answer = "No response from model."
-        return _success(
-            {
-                "answer": answer,
-                "summary": answer,
-                "model": model,
-            },
-            message="AI assist",
-        )
+
+        soap_json = {}
+        if soap_mode and answer:
+            try:
+                s = answer.strip()
+                lb = s.find("{")
+                rb = s.rfind("}")
+                if lb >= 0 and rb > lb:
+                    soap_json = json.loads(s[lb : rb + 1])
+                    if not isinstance(soap_json, dict):
+                        soap_json = {}
+            except Exception:
+                soap_json = {}
+
+        payload = {
+            "answer": answer,
+            "summary": answer,
+            "model": model,
+            "kind": "soap" if soap_mode else "general",
+        }
+        if soap_mode and soap_json:
+            payload["soap"] = {
+                "subjective": str(soap_json.get("subjective", "")).strip(),
+                "objective": str(soap_json.get("objective", "")).strip(),
+                "assessment": str(soap_json.get("assessment", "")).strip(),
+                "plan": str(soap_json.get("plan", "")).strip(),
+            }
+
+        return _success(payload, message="AI assist")
     except HTTPError as e:
         try:
             msg = e.read().decode("utf-8", errors="ignore")
