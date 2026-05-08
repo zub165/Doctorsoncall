@@ -3,6 +3,9 @@ import json
 from django.contrib.auth import authenticate
 from django.utils.dateparse import parse_date, parse_time
 from django.conf import settings
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+from urllib.error import URLError, HTTPError
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication, TokenAuthentication
 from rest_framework.authtoken.models import Token
@@ -1420,6 +1423,61 @@ def vitals_stub(request):
     return _success({"vitals": [], "note": "Wire Vitals model / devices here"})
 
 
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def er_wait_times(request):
+    """
+    Proxy ER wait-time analytics from the nginx-upstream API (default: api.mywaitime.com/api/).
+
+    Upstream contract (documented in FRONTEND_API_DOCUMENTATION.md):
+      GET /api/hospitals/wait-times/?hospital_id={uuid}
+    """
+    base = (getattr(settings, "MYWAITIME_UPSTREAM_API_BASE", "") or "").strip()
+    if not base:
+        base = "https://api.mywaitime.com/api/"
+    if not base.endswith("/"):
+        base += "/"
+
+    upstream_path = "hospitals/wait-times/"
+    params = {}
+    hospital_id = request.query_params.get("hospital_id") or request.query_params.get("id")
+    if hospital_id:
+        params["hospital_id"] = hospital_id
+
+    url = base + upstream_path
+    if params:
+        url += "?" + urlencode(params)
+
+    auth = request.headers.get("Authorization", "")
+    headers = {"Accept": "application/json"}
+    if auth:
+        headers["Authorization"] = auth
+
+    req = Request(url, headers=headers, method="GET")
+    try:
+        with urlopen(req, timeout=15) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+            try:
+                data = json.loads(raw) if raw else {}
+            except json.JSONDecodeError:
+                data = {"raw": raw}
+            return Response(data, status=resp.status)
+    except HTTPError as e:
+        try:
+            body = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = ""
+        return Response(
+            {"status": "error", "message": "Upstream error", "upstream_status": e.code, "body": body},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+    except URLError as e:
+        return Response(
+            {"status": "error", "message": "Upstream unreachable", "detail": str(e)},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def change_password(request):
@@ -1571,7 +1629,7 @@ def medical_record_detail(request, record_id):
 def medical_records_ai_assist(request):
     """`POST /api/medical-records/ai-assist/` body: query, optional record_ids."""
     body = request.data if isinstance(request.data, dict) else {}
-    q = str(body.get("query") or "")
+    q = str(body.get("query") or body.get("prompt") or "")
     return _success(
         {
             "summary": (

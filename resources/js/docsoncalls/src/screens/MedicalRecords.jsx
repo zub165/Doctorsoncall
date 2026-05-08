@@ -5,6 +5,15 @@ export function MedicalRecords() {
   const [tab, setTab] = React.useState('records'); // records | ai
   const [prompt, setPrompt] = React.useState('');
   const [ai, setAi] = React.useState({ loading: false, error: '', data: null });
+  const [impOpen, setImpOpen] = React.useState(false);
+  const [imp, setImp] = React.useState({
+    source_url: '',
+    patient_email: '',
+    patient_hint: '',
+    raw_payload: '',
+    ai_summary: '',
+  });
+  const [impState, setImpState] = React.useState({ loading: false, ok: '', error: '' });
   const [state, setState] = React.useState({
     loading: true,
     items: [],
@@ -35,11 +44,54 @@ export function MedicalRecords() {
     if (!q) return;
     setAi({ loading: true, error: '', data: null });
     try {
-      const { data } = await api.post(ApiPaths.medicalRecordsAiAssist, { prompt: q });
+      const { data } = await api.post(ApiPaths.medicalRecordsAiAssist, { query: q });
       setAi({ loading: false, error: '', data });
     } catch (err) {
       const msg = err?.response?.data?.message || err?.response?.data?.detail || 'AI request failed';
       setAi({ loading: false, error: msg.toString(), data: null });
+    }
+  }
+
+  function exportRecords() {
+    const items = Array.isArray(state.items) ? state.items : [];
+    const payload = {
+      exported_at: new Date().toISOString(),
+      count: items.length,
+      records: items,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'medical-records.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function submitImport(e) {
+    e?.preventDefault?.();
+    setImpState({ loading: true, ok: '', error: '' });
+    try {
+      const payload = {
+        source_url: imp.source_url,
+        patient_email: imp.patient_email,
+        patient_hint: imp.patient_hint,
+        raw_payload: imp.raw_payload,
+        ai_summary: imp.ai_summary,
+      };
+      const { data } = await api.post(ApiPaths.importsSubmit, payload);
+      const importId = data?.data?.import_id ?? data?.import_id;
+      setImpState({ loading: false, ok: importId ? `Submitted (import #${importId}).` : 'Submitted.', error: '' });
+      setImpOpen(false);
+      setImp({ source_url: '', patient_email: '', patient_hint: '', raw_payload: '', ai_summary: '' });
+    } catch (err) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.response?.data?.detail ||
+        (err?.response?.data?.errors ? JSON.stringify(err.response.data.errors) : '') ||
+        err?.message ||
+        'Import submit failed';
+      setImpState({ loading: false, ok: '', error: msg.toString() });
     }
   }
 
@@ -59,9 +111,9 @@ export function MedicalRecords() {
             <span aria-hidden="true">🧠</span>
             AI assistant
           </button>
-          <button className="dc-tab" type="button" data-active="false" disabled>
+          <button className="dc-tab" type="button" data-active={impOpen ? 'true' : 'false'} onClick={() => setImpOpen((v) => !v)}>
             <span aria-hidden="true">＋</span>
-            Create
+            Import
           </button>
         </div>
       </div>
@@ -101,11 +153,75 @@ export function MedicalRecords() {
                   </div>
                 </div>
               </div>
-              <button className="dc-btn dc-btn-primary" type="button" disabled style={{ fontWeight: 950 }}>
-                + Create
-              </button>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <button className="dc-btn" type="button" onClick={exportRecords} style={{ fontWeight: 950 }} disabled={state.loading}>
+                  Export
+                </button>
+                <button className="dc-btn dc-btn-primary" type="button" onClick={() => setImpOpen(true)} style={{ fontWeight: 950 }}>
+                  + Import
+                </button>
+              </div>
             </div>
           </div>
+
+          {impState.error ? (
+            <div className="dc-card" style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>
+              {impState.error}
+            </div>
+          ) : impState.ok ? (
+            <div className="dc-card" style={{ color: 'var(--dc-primary-dark)', fontWeight: 950 }}>
+              {impState.ok}
+            </div>
+          ) : null}
+
+          {impOpen ? (
+            <div className="dc-card" style={{ padding: 16 }}>
+              <div style={{ fontWeight: 950, fontSize: 16, marginBottom: 10 }}>Submit import</div>
+              <form className="dc-row" onSubmit={submitImport}>
+                <input
+                  className="dc-input"
+                  placeholder="Source URL (required)"
+                  value={imp.source_url}
+                  onChange={(e) => setImp((s) => ({ ...s, source_url: e.target.value }))}
+                  required
+                />
+                <input
+                  className="dc-input"
+                  placeholder="Patient email (optional)"
+                  value={imp.patient_email}
+                  onChange={(e) => setImp((s) => ({ ...s, patient_email: e.target.value }))}
+                />
+                <input
+                  className="dc-input"
+                  placeholder="Patient hint (optional)"
+                  value={imp.patient_hint}
+                  onChange={(e) => setImp((s) => ({ ...s, patient_hint: e.target.value }))}
+                />
+                <textarea
+                  className="dc-input"
+                  rows={4}
+                  placeholder="Raw payload (JSON or text)"
+                  value={imp.raw_payload}
+                  onChange={(e) => setImp((s) => ({ ...s, raw_payload: e.target.value }))}
+                />
+                <textarea
+                  className="dc-input"
+                  rows={3}
+                  placeholder="AI summary (optional)"
+                  value={imp.ai_summary}
+                  onChange={(e) => setImp((s) => ({ ...s, ai_summary: e.target.value }))}
+                />
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  <button className="dc-btn" type="button" onClick={() => setImpOpen(false)} style={{ fontWeight: 950 }}>
+                    Cancel
+                  </button>
+                  <button className="dc-btn dc-btn-primary" disabled={impState.loading} style={{ fontWeight: 950 }}>
+                    {impState.loading ? 'Submitting…' : 'Submit import'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          ) : null}
 
           {state.loading ? (
             <div className="dc-card" style={{ color: 'var(--dc-muted)' }}>

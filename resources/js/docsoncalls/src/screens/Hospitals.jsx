@@ -1,5 +1,7 @@
 import React from 'react';
 import { api, ApiPaths } from '../api.js';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import L from 'leaflet';
 
 export function Hospitals() {
   const [state, setState] = React.useState({
@@ -9,6 +11,7 @@ export function Hospitals() {
   });
   const [q, setQ] = React.useState('');
   const [kind, setKind] = React.useState('all'); // all | er | urgent
+  const [wait, setWait] = React.useState({ loading: false, error: '', byId: {} });
 
   React.useEffect(() => {
     let alive = true;
@@ -27,6 +30,22 @@ export function Hospitals() {
       alive = false;
     };
   }, []);
+
+  async function refreshWaitTime(hospitalId) {
+    if (!hospitalId) return;
+    setWait((s) => ({ ...s, loading: true, error: '' }));
+    try {
+      const { data } = await api.get(ApiPaths.erWaitTimes, { params: { hospital_id: hospitalId } });
+      setWait((s) => ({
+        loading: false,
+        error: '',
+        byId: { ...s.byId, [hospitalId]: data },
+      }));
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.message || 'Failed to load wait time';
+      setWait((s) => ({ ...s, loading: false, error: msg.toString() }));
+    }
+  }
 
   const items = React.useMemo(() => {
     const qq = q.trim().toLowerCase();
@@ -53,21 +72,33 @@ export function Hospitals() {
     return n;
   }, [items]);
 
-  const mapUrl = React.useMemo(() => {
-    // Lightweight OSM embed. If API returns lat/lng on any item, center there; otherwise default to Bay Area.
+  const mapCenter = React.useMemo(() => {
     const first = items.find((x) => Number.isFinite(Number(x?.lat)) && Number.isFinite(Number(x?.lng)));
     const lat = first ? Number(first.lat) : 37.3382;
     const lng = first ? Number(first.lng) : -121.8863;
-    const dLat = 0.06;
-    const dLng = 0.09;
-    const left = lng - dLng;
-    const right = lng + dLng;
-    const top = lat + dLat;
-    const bottom = lat - dLat;
-    return `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(
-      `${left},${bottom},${right},${top}`,
-    )}&layer=mapnik&marker=${encodeURIComponent(`${lat},${lng}`)}`;
+    return [lat, lng];
   }, [items]);
+
+  const markers = React.useMemo(() => {
+    return items
+      .map((h) => {
+        const lat = Number(h?.lat);
+        const lng = Number(h?.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        return { h, lat, lng };
+      })
+      .filter(Boolean);
+  }, [items]);
+
+  const markerIcon = React.useMemo(() => {
+    return L.divIcon({
+      className: '',
+      html:
+        '<div style="width:22px;height:22px;border-radius:999px;background:rgba(211,47,47,0.95);border:3px solid rgba(255,255,255,0.95);box-shadow:0 8px 18px rgba(31,41,55,0.18)"></div>',
+      iconSize: [22, 22],
+      iconAnchor: [11, 11],
+    });
+  }, []);
 
   function badge(text, tone) {
     const bg =
@@ -175,16 +206,39 @@ export function Hospitals() {
       ) : (
         <div className="dc-row" style={{ gap: 14 }}>
           <div className="dc-card" style={{ padding: 0, overflow: 'hidden' }}>
-            <div style={{ height: 220, background: '#f1f5f9' }}>
-              <iframe
-                title="OpenStreetMap"
-                src={mapUrl}
-                style={{ border: 0, width: '100%', height: '100%' }}
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-              />
+            <div style={{ height: 260, background: '#f1f5f9' }}>
+              <MapContainer
+                center={mapCenter}
+                zoom={10}
+                style={{ height: '100%', width: '100%' }}
+                scrollWheelZoom={false}
+              >
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+                {markers.slice(0, 120).map(({ h, lat, lng }) => (
+                  <Marker key={h?.uuid || h?.id || `${lat},${lng}`} position={[lat, lng]} icon={markerIcon}>
+                    <Popup>
+                      <div style={{ fontWeight: 900 }}>{(h?.name || h?.title || 'Hospital').toString()}</div>
+                      <div style={{ color: '#6b7280', fontWeight: 700, marginTop: 6 }}>
+                        {(h?.address || h?.city || '').toString()}
+                      </div>
+                    </Popup>
+                  </Marker>
+                ))}
+              </MapContainer>
             </div>
-            <div style={{ padding: 10, fontSize: 12, color: 'var(--dc-muted)', display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+            <div
+              style={{
+                padding: 10,
+                fontSize: 12,
+                color: 'var(--dc-muted)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                gap: 10,
+              }}
+            >
               <span>© OpenStreetMap contributors</span>
               <span>Markers: GET /api/hospitals/</span>
             </div>
@@ -216,11 +270,13 @@ export function Hospitals() {
             {items.slice(0, 30).map((h, idx) => {
               const name = (h?.name || h?.title || 'Hospital').toString();
               const address = (h?.address || h?.city || '').toString();
-              const wait = h?.wait_minutes ?? h?.wait_time_minutes ?? h?.ai_wait_time_minutes;
+              const waitMins = h?.wait_minutes ?? h?.wait_time_minutes ?? h?.ai_wait_time_minutes;
               const rating = h?.rating ?? h?.stars;
               const ai = h?.ai_score ?? h?.ai ?? h?.triage_score;
               const isOpen = h?.is_open === true || h?.open === true || h?.status === 'open';
               const type = (h?.type || h?.kind || h?.category || '').toString();
+              const hid = h?.uuid || h?.id;
+              const upstream = hid ? waitStateFromUpstream(waitStateById(wait, hid)) : null;
               return (
                 <div
                   key={h?.uuid || h?.id || idx}
@@ -257,13 +313,26 @@ export function Hospitals() {
                   </div>
 
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                    {Number.isFinite(Number(wait)) ? badge(`~${Number(wait)} min wait`, 'warn') : null}
+                    {Number.isFinite(Number(waitMins)) ? badge(`~${Number(waitMins)} min wait`, 'warn') : null}
+                    {upstream?.minutes != null ? badge(`~${upstream.minutes} min wait`, 'warn') : null}
                     {Number.isFinite(Number(rating)) ? badge(`${Number(rating).toFixed(1)} ★`, 'info') : null}
                     {Number.isFinite(Number(ai)) ? badge(`AI ${Number(ai).toFixed(1)}`, 'danger') : null}
                     {isOpen ? badge('Open', 'ok') : null}
                   </div>
 
                   {type ? <div style={{ marginTop: 2 }}>{badge(type, 'info')}</div> : null}
+
+                  {hid ? (
+                    <button
+                      className="dc-btn"
+                      type="button"
+                      disabled={wait.loading}
+                      onClick={() => refreshWaitTime(hid)}
+                      style={{ fontWeight: 950 }}
+                    >
+                      {wait.loading ? 'Refreshing…' : 'Refresh wait time'}
+                    </button>
+                  ) : null}
                 </div>
               );
             })}
@@ -272,5 +341,22 @@ export function Hospitals() {
       )}
     </div>
   );
+}
+
+function waitStateById(waitState, id) {
+  return waitState?.byId?.[id] ?? null;
+}
+
+function waitStateFromUpstream(data) {
+  if (!data) return null;
+  // Upstream shape varies; try common fields
+  const minutes =
+    data?.wait_time_prediction ??
+    data?.data?.wait_time_prediction ??
+    data?.wait_time ??
+    data?.data?.wait_time ??
+    null;
+  const m = Number(minutes);
+  return Number.isFinite(m) ? { minutes: Math.round(m) } : null;
 }
 

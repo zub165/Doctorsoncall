@@ -48,8 +48,8 @@ export function Login() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--dc-bg)' }}>
-      <div className="dc-hero" style={{ borderRadius: 0, padding: '22px 18px' }}>
+    <div className="dc-auth-shell">
+      <div className="dc-hero dc-auth-hero">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div className="dc-brand-badge" style={{ background: 'rgba(255,255,255,0.2)' }}>
             +
@@ -61,8 +61,8 @@ export function Login() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', placeItems: 'center', padding: 18 }}>
-        <div className="dc-card" style={{ width: 420, maxWidth: '92vw' }}>
+      <div className="dc-auth-wrap">
+        <div className="dc-card dc-auth-card">
           <div style={{ fontWeight: 950, fontSize: 20, marginBottom: 8 }}>Sign in</div>
 
           <div style={{ color: 'var(--dc-muted)', fontSize: 13, marginBottom: 10 }}>

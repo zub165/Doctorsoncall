@@ -30,6 +30,16 @@ body {
     Arial, "Apple Color Emoji", "Segoe UI Emoji";
 }
 
+/* Better mobile rendering + avoid horizontal overflow on small devices */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  overflow-x: hidden;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -174,6 +184,41 @@ a {
   color: var(--dc-primary-dark);
 }
 
+/* Auth (Login/Register) responsive shell */
+.dc-auth-shell {
+  min-height: 100vh;
+  background: var(--dc-bg);
+}
+
+.dc-auth-hero {
+  border-radius: 0;
+  padding: 22px 18px;
+}
+
+.dc-auth-wrap {
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.dc-auth-card {
+  width: min(460px, 92vw);
+}
+
+@media (max-width: 520px) {
+  .dc-auth-hero {
+    padding: 18px 14px;
+  }
+
+  .dc-auth-wrap {
+    padding: 14px;
+  }
+
+  .dc-auth-card {
+    width: min(520px, 96vw);
+  }
+}
+
 .dc-drawer-overlay {
   display: none;
 }
@@ -296,6 +341,18 @@ a {
   display: grid;
   gap: 12px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dc-center {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.dc-center-card {
+  width: min(420px, 92vw);
+  text-align: center;
 }
 
 .dc-tile {
@@ -563,5 +620,24 @@ a {
     position: sticky;
     top: 0;
     z-index: 10;
+  }
+}
+
+@media (max-width: 520px) {
+  .dc-grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .dc-tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .dc-tab {
+    justify-content: flex-start;
+    padding: 10px 12px;
+  }
+
+  .dc-time-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

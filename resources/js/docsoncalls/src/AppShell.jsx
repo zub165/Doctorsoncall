@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { api, ApiPaths, tokenStore, apiBaseUrl } from './api.js';
+import { api, ApiPaths, tokenStore } from './api.js';
 import { Dashboard } from './screens/Dashboard.jsx';
 import { Hospitals } from './screens/Hospitals.jsx';
 import { Placeholder } from './screens/Placeholder.jsx';
@@ -164,9 +164,9 @@ export function AppShell() {
               {title}
             </div>
           </div>
-          <div style={{ color: 'var(--dc-muted)', fontSize: 13 }}>
-            {apiBaseUrl} · {me.loading ? 'role: …' : `role: ${role || 'guest'}`}
-          </div>
+          {/* Intentionally hide API/role debug info from the main UI.
+              Admins can view API connections inside Settings. */}
+          <div style={{ color: 'var(--dc-muted)', fontSize: 13 }}>{me.loading ? '' : ''}</div>
         </div>
 
         <Routes>
@@ -519,6 +519,7 @@ function Courses() {
 
 function AiAssistant() {
   const [msg, setMsg] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
   const [history, setHistory] = React.useState([
     {
       role: 'assistant',
@@ -527,15 +528,43 @@ function AiAssistant() {
     },
   ]);
 
-  const quick = ['Headache', 'Chest pain', 'Fever', 'Nausea', 'Breathing issues', 'Dental pain', 'Bleeding', 'Injury', 'Fatigue', 'Medication help'];
+  const quick = [
+    'Headache',
+    'Chest pain',
+    'Fever',
+    'Nausea',
+    'Breathing issues',
+    'Dental pain',
+    'Bleeding',
+    'Injury',
+    'Fatigue',
+    'Medication help',
+  ];
 
-  function send() {
+  async function send() {
     const t = msg.trim();
-    if (!t) return;
+    if (!t || busy) return;
+    setBusy(true);
     setHistory((h) => [...h, { role: 'user', text: t }]);
     setMsg('');
-    // UI-only for now: backend endpoint can be wired later.
-    setHistory((h) => [...h, { role: 'assistant', text: 'Thanks — please describe duration, severity (0–10), and any red flags. If severe, seek urgent care.' }]);
+    try {
+      const { data } = await api.post(ApiPaths.medicalRecordsAiAssist, { query: t });
+      const reply =
+        (data && (data.message || data.detail || data.answer || data.response)) ||
+        (typeof data === 'string' ? data : '') ||
+        JSON.stringify(data, null, 2);
+      setHistory((h) => [...h, { role: 'assistant', text: reply.toString() }]);
+    } catch (err) {
+      const serverMsg =
+        err?.response?.data?.message ||
+        err?.response?.data?.detail ||
+        (typeof err?.response?.data === 'string' ? err.response.data : '') ||
+        err?.message ||
+        'AI request failed.';
+      setHistory((h) => [...h, { role: 'assistant', text: `Error: ${serverMsg}` }]);
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -573,9 +602,16 @@ function AiAssistant() {
         </div>
 
         <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
-          <input className="dc-input" placeholder="Send a message" value={msg} onChange={(e) => setMsg(e.target.value)} />
-          <button className="dc-btn dc-btn-primary" type="button" onClick={send} style={{ fontWeight: 950 }}>
-            ▶
+          <input
+            className="dc-input"
+            placeholder="Send a message"
+            value={msg}
+            onChange={(e) => setMsg(e.target.value)}
+            onKeyDown={(e) => (e.key === 'Enter' ? send() : null)}
+            disabled={busy}
+          />
+          <button className="dc-btn dc-btn-primary" type="button" onClick={send} disabled={busy} style={{ fontWeight: 950 }}>
+            {busy ? '…' : '▶'}
           </button>
         </div>
       </div>
@@ -593,7 +629,7 @@ function SoapNotes() {
     if (!text) return;
     setAi({ loading: true, error: '' });
     try {
-      const { data } = await api.post(ApiPaths.medicalRecordsAiAssist, { prompt: `Convert to SOAP:\n\n${text}` });
+      const { data } = await api.post(ApiPaths.medicalRecordsAiAssist, { query: `Convert to SOAP:\n\n${text}` });
       const out = JSON.stringify(data, null, 2);
       setSoap((s) => ({ ...s, s: out }));
       setAi({ loading: false, error: '' });
@@ -643,6 +679,8 @@ function SoapNotes() {
 }
 
 function DoctorVisit() {
+  const [latest, setLatest] = React.useState({ loading: true, error: '', record: null });
+  const [wa, setWa] = React.useState({ loading: true, number: '' });
   const tools = [
     { label: 'Video', icon: '🎥' },
     { label: 'Audio', icon: '🎧' },
@@ -652,12 +690,58 @@ function DoctorVisit() {
     { label: 'Export text', icon: '📝' },
   ];
 
+  async function refreshLatest() {
+    setLatest({ loading: true, error: '', record: null });
+    try {
+      const { data } = await api.get(ApiPaths.medicalRecords);
+      const items = Array.isArray(data) ? data : data?.results || data?.data || [];
+      const first = Array.isArray(items) ? items[0] : null;
+      setLatest({ loading: false, error: '', record: first || null });
+    } catch (err) {
+      const msg = err?.response?.data?.message || err?.response?.data?.detail || err?.message || 'Failed to load';
+      setLatest({ loading: false, error: msg.toString(), record: null });
+    }
+  }
+
+  React.useEffect(() => {
+    refreshLatest();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  React.useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const { data } = await api.get(ApiPaths.settingsGeneralKey('whatsapp_support_number'));
+        const n = (data?.data?.value ?? data?.value ?? '').toString().trim();
+        if (!alive) return;
+        setWa({ loading: false, number: n });
+      } catch {
+        if (!alive) return;
+        setWa({ loading: false, number: '' });
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const waHref = React.useMemo(() => {
+    const n = (wa.number || '').replace(/\s+/g, '');
+    if (!n) return '';
+    const num = n.replace(/^\+/, '');
+    const msg = encodeURIComponent('Hello Doctor On Call support. I need assistance.');
+    return `https://wa.me/${num}?text=${msg}`;
+  }, [wa.number]);
+
   return (
     <div className="dc-row" style={{ gap: 14 }}>
       <div className="dc-appbar">
         <div className="dc-appbar-title">
           <h2>Doctor visit</h2>
-          <span style={{ opacity: 0.9, fontWeight: 900 }}>↻</span>
+          <button className="dc-btn" type="button" onClick={refreshLatest} style={{ fontWeight: 950 }}>
+            ↻
+          </button>
         </div>
       </div>
 
@@ -666,10 +750,16 @@ function DoctorVisit() {
           <div>
             <div style={{ fontWeight: 950 }}>Latest local medical record</div>
             <div style={{ color: 'var(--dc-muted)', fontWeight: 800, fontSize: 13, marginTop: 4 }}>
-              No local record found yet. Create one from Medical records.
+              {latest.loading
+                ? 'Loading…'
+                : latest.error
+                  ? latest.error
+                  : latest.record
+                    ? `${(latest.record?.title || latest.record?.type || 'Record').toString()} · ${(latest.record?.created_at || latest.record?.date || '').toString()}`
+                    : 'No local record found yet. Create one from Medical records.'}
             </div>
           </div>
-          <button className="dc-btn" type="button" style={{ fontWeight: 950 }}>
+          <button className="dc-btn" type="button" onClick={refreshLatest} style={{ fontWeight: 950 }}>
             Refresh
           </button>
         </div>
@@ -685,6 +775,18 @@ function DoctorVisit() {
           ))}
         </div>
       </div>
+
+      {wa.loading ? null : waHref ? (
+        <a
+          className="dc-btn dc-btn-primary"
+          href={waHref}
+          target="_blank"
+          rel="noreferrer"
+          style={{ padding: 14, borderRadius: 16, fontWeight: 950, textAlign: 'center' }}
+        >
+          WhatsApp Support
+        </a>
+      ) : null}
     </div>
   );
 }
@@ -921,6 +1023,39 @@ function Settings({ isAdmin }) {
   const health = useApiCall(() => api.get(ApiPaths.health).then((r) => r.status), []);
   const me = useApiCall(() => api.get(ApiPaths.docOnCallMe).then((r) => r.data), []);
   const repl = useApiCall(() => api.get(ApiPaths.replicateToken).then((r) => r.data), []);
+  const [wa, setWa] = React.useState({ loading: false, value: '', saved: '', error: '' });
+
+  React.useEffect(() => {
+    let alive = true;
+    if (!isAdmin) return () => {};
+    (async () => {
+      try {
+        const { data } = await api.get(ApiPaths.settingsGeneralKey('whatsapp_support_number'));
+        const v = (data?.data?.value ?? data?.value ?? '').toString();
+        if (!alive) return;
+        setWa((s) => ({ ...s, value: v, saved: v, error: '' }));
+      } catch {
+        if (!alive) return;
+        setWa((s) => ({ ...s, error: '' }));
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [isAdmin]);
+
+  async function saveWhatsapp() {
+    const v = (wa.value || '').trim();
+    setWa((s) => ({ ...s, loading: true, error: '' }));
+    try {
+      const { data } = await api.post(ApiPaths.settingsGeneral, { key: 'whatsapp_support_number', value: v });
+      const saved = (data?.data?.value ?? data?.value ?? v).toString();
+      setWa((s) => ({ ...s, loading: false, saved, value: saved, error: '' }));
+    } catch (err) {
+      const msg = err?.response?.data?.message || err?.response?.data?.detail || 'Failed to save';
+      setWa((s) => ({ ...s, loading: false, error: msg.toString() }));
+    }
+  }
 
   const roleLabel = me.loading
     ? '…'
@@ -945,51 +1080,57 @@ function Settings({ isAdmin }) {
         </div>
       </div>
 
-      <div style={{ fontWeight: 950, fontSize: 20 }}>API connections</div>
+      {isAdmin ? <div style={{ fontWeight: 950, fontSize: 20 }}>API connections</div> : null}
 
-      <div className="dc-list">
-        <div className="dc-list-row">
-          <div className="dc-list-left">
-            <div className="dc-avatar">🔗</div>
-            <div className="dc-list-text">
-              <div className="dc-list-title">API base URL</div>
-              <div className="dc-list-sub">{apiBaseUrl}</div>
+      {isAdmin ? (
+        <div className="dc-list">
+          <div className="dc-list-row">
+            <div className="dc-list-left">
+              <div className="dc-avatar">🔗</div>
+              <div className="dc-list-text">
+                <div className="dc-list-title">API base URL</div>
+                <div className="dc-list-sub">{apiBaseUrl}</div>
+              </div>
             </div>
           </div>
-        </div>
 
-        <div className="dc-list-row">
-          <div className="dc-list-left">
-            <div className="dc-avatar">✅</div>
-            <div className="dc-list-text">
-              <div className="dc-list-title">Backend health</div>
-              <div className="dc-list-sub">
-                {health.loading ? 'Checking…' : health.error ? 'Not reachable' : 'Connected'}
+          <div className="dc-list-row">
+            <div className="dc-list-left">
+              <div className="dc-avatar">✅</div>
+              <div className="dc-list-text">
+                <div className="dc-list-title">Backend health</div>
+                <div className="dc-list-sub">
+                  {health.loading ? 'Checking…' : health.error ? 'Not reachable' : 'Connected'}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="dc-list-row">
+            <div className="dc-list-left">
+              <div className="dc-avatar">👤</div>
+              <div className="dc-list-text">
+                <div className="dc-list-title">Role endpoint</div>
+                <div className="dc-list-sub">{roleLabel}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="dc-list-row">
+            <div className="dc-list-left">
+              <div className="dc-avatar">🤖</div>
+              <div className="dc-list-text">
+                <div className="dc-list-title">AI provider (Replicate)</div>
+                <div className="dc-list-sub">{replLabel}</div>
               </div>
             </div>
           </div>
         </div>
-
-        <div className="dc-list-row">
-          <div className="dc-list-left">
-            <div className="dc-avatar">👤</div>
-            <div className="dc-list-text">
-              <div className="dc-list-title">Role endpoint</div>
-              <div className="dc-list-sub">{roleLabel}</div>
-            </div>
-          </div>
+      ) : (
+        <div className="dc-card" style={{ color: 'var(--dc-muted)', fontWeight: 800 }}>
+          Admin-only settings are hidden on this account.
         </div>
-
-        <div className="dc-list-row">
-          <div className="dc-list-left">
-            <div className="dc-avatar">🤖</div>
-            <div className="dc-list-text">
-              <div className="dc-list-title">AI provider (Replicate)</div>
-              <div className="dc-list-sub">{replLabel}</div>
-            </div>
-          </div>
-        </div>
-      </div>
+      )}
 
       {isAdmin ? (
         <div className="dc-row" style={{ gap: 10 }}>
@@ -1006,6 +1147,36 @@ function Settings({ isAdmin }) {
           </Link>
           <div style={{ color: 'var(--dc-muted)', fontSize: 12, fontWeight: 800 }}>
             Pull down to refresh status.
+          </div>
+        </div>
+      ) : null}
+
+      {isAdmin ? (
+        <div className="dc-row" style={{ gap: 10 }}>
+          <div style={{ fontWeight: 950, fontSize: 20 }}>Support</div>
+          <div className="dc-card" style={{ padding: 16 }}>
+            <div style={{ fontWeight: 950, marginBottom: 8 }}>WhatsApp support number</div>
+            <div style={{ color: 'var(--dc-muted)', fontWeight: 800, fontSize: 13, marginBottom: 10 }}>
+              Use E.164 format, e.g. +14155552671 (no spaces).
+            </div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <input
+                className="dc-input"
+                value={wa.value}
+                onChange={(e) => setWa((s) => ({ ...s, value: e.target.value }))}
+                placeholder="+14155552671"
+                style={{ flex: 1, minWidth: 240 }}
+              />
+              <button className="dc-btn dc-btn-primary" type="button" onClick={saveWhatsapp} disabled={wa.loading} style={{ fontWeight: 950 }}>
+                {wa.loading ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+            {wa.error ? <div style={{ marginTop: 10, color: 'var(--dc-danger)', fontWeight: 900 }}>{wa.error}</div> : null}
+            {wa.saved ? (
+              <div style={{ marginTop: 10, color: 'var(--dc-muted)', fontWeight: 800, fontSize: 12 }}>
+                Saved: {wa.saved}
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}

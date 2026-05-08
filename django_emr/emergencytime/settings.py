@@ -17,6 +17,12 @@ ALLOWED_HOSTS = ["*"]
 # For production, override via env var ADMIN_REGISTER_CODE.
 ADMIN_REGISTER_CODE = os.environ.get("ADMIN_REGISTER_CODE", "DoctorAdmin2026!")
 
+# Optional upstream API base (proxied by nginx to :3015).
+# Used to fetch ER wait-time analytics or other legacy endpoints.
+MYWAITIME_UPSTREAM_API_BASE = os.environ.get(
+    "MYWAITIME_UPSTREAM_API_BASE", "https://api.mywaitime.com/api/"
+).strip()
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",

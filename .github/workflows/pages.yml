@@ -19,6 +19,11 @@ concurrency:
 env:
   # Opt into Node.js 24 for JavaScript-based actions now.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  # Pages build env (override via GitHub Variables/Secrets if needed)
+  VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+  VITE_ROUTER_MODE: ${{ vars.VITE_ROUTER_MODE }}
+  VITE_ROUTER_BASENAME: ${{ vars.VITE_ROUTER_BASENAME }}
+  VITE_PAGES_BASE: ${{ vars.VITE_PAGES_BASE }}
 
 permissions:
   contents: read

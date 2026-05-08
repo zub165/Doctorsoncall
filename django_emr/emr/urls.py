@@ -28,6 +28,7 @@ urlpatterns = [
         "hospitals/<str:hospital_id>/ai-wait-time/",
         views.hospital_ai_wait_time,
     ),
+    path("er-wait-times/", views.er_wait_times),
     path("osm/search-hospitals/", views.osm_search),
     path("osm/system-status/", views.osm_status),
     path("v1/courses/", views.courses_v1),

@@ -60,6 +60,7 @@ export const ApiPaths = {
   changePassword: 'auth/change-password/',
   docOnCallMe: 'doctor-on-call/me/',
   hospitals: 'hospitals/',
+  erWaitTimes: 'er-wait-times/',
   osmSystemStatus: 'osm/system-status/',
   osmSearchHospitals: 'osm/search-hospitals/',
   coursesV1: 'v1/courses/',
@@ -78,5 +79,8 @@ export const ApiPaths = {
   feedbackSubmit: 'feedback/submit/',
   medicalRecords: 'medical-records/',
   medicalRecordsAiAssist: 'medical-records/ai-assist/',
+  importsSubmit: 'imports/submit/',
+  settingsGeneral: 'settings/general/',
+  settingsGeneralKey: (key) => `settings/general/${encodeURIComponent(String(key))}/`,
 };
 

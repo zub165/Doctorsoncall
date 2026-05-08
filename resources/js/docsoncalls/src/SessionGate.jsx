@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, ApiPaths, tokenStore, apiBaseUrl } from './api.js';
+import { api, ApiPaths, tokenStore } from './api.js';
 
 function getRoleFromMe(me) {
   const v =
@@ -58,8 +58,8 @@ export function SessionGate() {
   if (!state.loading) return null;
 
   return (
-    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
-      <div className="dc-card" style={{ width: 420, maxWidth: '92vw', textAlign: 'center' }}>
+    <div className="dc-center">
+      <div className="dc-card dc-center-card">
         <div
           style={{
             width: 64,
@@ -78,7 +78,7 @@ export function SessionGate() {
         </div>
         <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 6 }}>Loading Doctor On Call…</div>
         <div style={{ color: 'var(--dc-muted)', fontSize: 13 }}>
-          {state.error || `API: ${apiBaseUrl}`}
+          {state.error || 'Please wait…'}
         </div>
       </div>
     </div>
