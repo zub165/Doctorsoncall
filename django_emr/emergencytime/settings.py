@@ -23,6 +23,13 @@ MYWAITIME_UPSTREAM_API_BASE = os.environ.get(
     "MYWAITIME_UPSTREAM_API_BASE", "https://api.mywaitime.com/api/"
 ).strip()
 
+# Local LLM (Ollama) configuration.
+# Example:
+#   OLLAMA_BASE_URL=http://127.0.0.1:11434
+#   OLLAMA_MODEL=llama3.1
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434").strip()
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.1").strip()
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",

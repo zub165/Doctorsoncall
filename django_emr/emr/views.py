@@ -1840,17 +1840,65 @@ def medical_records_ai_assist(request):
     """`POST /api/medical-records/ai-assist/` body: query, optional record_ids."""
     body = request.data if isinstance(request.data, dict) else {}
     q = str(body.get("query") or body.get("prompt") or "")
-    return _success(
-        {
-            "summary": (
-                "Local scaffold only. Deploy the full API for real AI over charts. "
-                "Your question is echoed below."
-            ),
-            "suggestions": [
-                "Book follow-up if symptoms change.",
-                "Bring this summary to your next appointment.",
-            ],
-            "query_echo": q,
-        },
-        message="AI assist (stub)",
+    if not q.strip():
+        return _error({"query": ["query (or prompt) is required"]})
+
+    # Call local Ollama (no streaming).
+    base = (getattr(settings, "OLLAMA_BASE_URL", "") or "").strip() or "http://127.0.0.1:11434"
+    model = (getattr(settings, "OLLAMA_MODEL", "") or "").strip() or "llama3.1"
+    url = base.rstrip("/") + "/api/generate"
+
+    system = (
+        "You are a medical assistant. Provide general information only, not a diagnosis. "
+        "If symptoms sound severe (chest pain, trouble breathing, stroke signs, severe bleeding), "
+        "recommend urgent/emergency care. Keep it concise with bullet points and next steps."
     )
+    prompt = f"{system}\n\nUSER:\n{q}\n\nASSISTANT:\n"
+
+    try:
+        payload = json.dumps(
+            {
+                "model": model,
+                "prompt": prompt,
+                "stream": False,
+            }
+        ).encode("utf-8")
+        req = Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req, timeout=60) as resp:
+            raw = resp.read().decode("utf-8", errors="ignore")
+        out = json.loads(raw) if raw else {}
+        answer = str(out.get("response") or "").strip()
+        if not answer:
+            answer = "No response from model."
+        return _success(
+            {
+                "answer": answer,
+                "summary": answer,
+                "model": model,
+            },
+            message="AI assist",
+        )
+    except HTTPError as e:
+        try:
+            msg = e.read().decode("utf-8", errors="ignore")
+        except Exception:
+            msg = str(e)
+        return Response(
+            {"status": "error", "message": "Ollama error", "detail": msg},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+    except URLError as e:
+        return Response(
+            {"status": "error", "message": "Ollama unreachable", "detail": str(e)},
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+    except Exception as e:
+        return Response(
+            {"status": "error", "message": "AI error", "detail": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
