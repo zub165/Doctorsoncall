@@ -18,9 +18,14 @@ import 'medical_record_detail_screen.dart';
 
 /// Records list + AI assistant (matches **`/api/medical-records/`** family on the server).
 class MedicalRecordsHubScreen extends StatefulWidget {
-  const MedicalRecordsHubScreen({super.key, required this.apiClient});
+  const MedicalRecordsHubScreen({
+    super.key,
+    required this.apiClient,
+    this.role,
+  });
 
   final EmergencyApiClient apiClient;
+  final String? role;
 
   @override
   State<MedicalRecordsHubScreen> createState() =>
@@ -29,7 +34,7 @@ class MedicalRecordsHubScreen extends StatefulWidget {
 
 class _MedicalRecordsHubScreenState extends State<MedicalRecordsHubScreen>
     with SingleTickerProviderStateMixin {
-  late final TabController _tab = TabController(length: 3, vsync: this);
+  late final TabController _tab = TabController(length: 4, vsync: this);
   late final MedicalRecordsApi _api = MedicalRecordsApi(widget.apiClient);
 
   @override
@@ -53,6 +58,7 @@ class _MedicalRecordsHubScreenState extends State<MedicalRecordsHubScreen>
               Tab(icon: Icon(Icons.folder_shared_outlined), text: 'Records'),
               Tab(icon: Icon(Icons.psychology_outlined), text: 'AI assistant'),
               Tab(icon: Icon(Icons.attach_file_rounded), text: 'Documents'),
+              Tab(icon: Icon(Icons.ios_share_rounded), text: 'Share'),
             ],
           ),
         ),
@@ -63,10 +69,319 @@ class _MedicalRecordsHubScreenState extends State<MedicalRecordsHubScreen>
               _RecordsTab(api: _api, apiClient: widget.apiClient),
               _AiAssistantTab(api: _api),
               _DocumentsTab(api: _api),
+              _ShareTab(api: _api, apiClient: widget.apiClient, role: widget.role),
             ],
           ),
         ),
       ],
+    );
+  }
+}
+
+class _ShareTab extends StatefulWidget {
+  const _ShareTab({
+    required this.api,
+    required this.apiClient,
+    required this.role,
+  });
+
+  final MedicalRecordsApi api;
+  final EmergencyApiClient apiClient;
+  final String? role;
+
+  @override
+  State<_ShareTab> createState() => _ShareTabState();
+}
+
+class _ShareTabState extends State<_ShareTab> {
+  bool _loading = true;
+  String? _error;
+  List<Map<String, dynamic>> _items = const [];
+
+  List<Map<String, dynamic>> _providers = const [];
+  int? _providerId;
+  final _note = TextEditingController();
+  bool _includeEmail = false;
+  bool _busy = false;
+
+  bool get _isDoctorish {
+    final r = (widget.role ?? '').toLowerCase().trim();
+    return r == 'doctor' || r == 'provider' || r == 'physician' || r == 'admin' || r == 'staff' || r == 'administrator';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+    _loadProviders();
+  }
+
+  @override
+  void dispose() {
+    _note.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadProviders() async {
+    try {
+      final data = await EmrFeaturesApi(widget.apiClient).providers();
+      List<Map<String, dynamic>> list = [];
+      if (data is Map && data['results'] is List) {
+        list = (data['results'] as List).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      } else if (data is List) {
+        list = data.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      }
+      if (!mounted) return;
+      setState(() => _providers = list);
+    } catch (_) {
+      // ignore; share can still work if provider_id is entered elsewhere
+    }
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final rows = _isDoctorish ? await widget.api.inboxShares() : await widget.api.myShares();
+      setState(() {
+        _items = rows;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _items = const [];
+        _loading = false;
+      });
+    }
+  }
+
+  Map<String, dynamic> _unwrap(Map<String, dynamic> row) {
+    final s = row['share'];
+    if (s is Map) return Map<String, dynamic>.from(s);
+    return row;
+  }
+
+  Future<void> _send() async {
+    final pid = _providerId;
+    final note = _note.text.trim();
+    if (pid == null || pid <= 0 || note.isEmpty) {
+      setState(() => _error = 'Select doctor and write a note.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await widget.api.createShare(
+        providerId: pid,
+        note: note,
+        includePatientEmail: _includeEmail,
+      );
+      _note.clear();
+      _includeEmail = false;
+      if (!mounted) return;
+      setState(() => _busy = false);
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Shared with doctor.')),
+      );
+    } catch (e) {
+      setState(() {
+        _busy = false;
+        _error = e.toString();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+    }
+    if (_error != null && _error!.isNotEmpty) {
+      return ApiAccessPlaceholder(
+        title: 'Share unavailable',
+        message: _error!,
+        icon: Icons.ios_share_rounded,
+        onRetry: _load,
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'HIPAA / Safety disclaimer',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'For care coordination only. Do not share highly sensitive information unless necessary. '
+                    'AI summaries may be incomplete; clinicians must verify against source documents. '
+                    'If emergency, call local emergency services.',
+                    style: TextStyle(color: Colors.grey.shade700),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (!_isDoctorish) ...[
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Share with doctor',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<int>(
+                      value: _providerId,
+                      decoration: const InputDecoration(labelText: 'Doctor'),
+                      items: _providers
+                          .where((p) => p['id'] != null)
+                          .map((p) => DropdownMenuItem<int>(
+                                value: int.tryParse('${p['id']}'),
+                                child: Text((p['full_name'] ?? p['name'] ?? 'Provider').toString()),
+                              ))
+                          .toList(),
+                      onChanged: _busy ? null : (v) => setState(() => _providerId = v),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _note,
+                      minLines: 3,
+                      maxLines: 6,
+                      decoration: const InputDecoration(
+                        labelText: 'What do you want to share?',
+                        hintText: 'Symptoms, concerns, key history, questions…',
+                      ),
+                      enabled: !_busy,
+                      textCapitalization: TextCapitalization.sentences,
+                    ),
+                    const SizedBox(height: 10),
+                    SwitchListTile(
+                      value: _includeEmail,
+                      onChanged: _busy ? null : (v) => setState(() => _includeEmail = v),
+                      title: const Text('Allow doctor to email me the summary'),
+                      subtitle: const Text('Consent-based. Uses your patient profile email.'),
+                    ),
+                    const SizedBox(height: 10),
+                    FilledButton.icon(
+                      onPressed: _busy ? null : _send,
+                      icon: _busy
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : const Icon(Icons.send),
+                      label: Text(_busy ? 'Sharing…' : 'Share'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          Text(
+            _isDoctorish ? 'Inbox' : 'My shares',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 10),
+          if (_items.isEmpty)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'No shares yet.',
+                  style: TextStyle(color: Colors.grey.shade700),
+                ),
+              ),
+            )
+          else
+            ..._items.map((row) {
+              final s = _unwrap(row);
+              final id = int.tryParse('${s['id'] ?? ''}');
+              final patientName = (s['patient']?['name'] ?? s['patient']?['email'] ?? '').toString();
+              final providerName = (s['provider']?['full_name'] ?? '').toString();
+              final summary = (s['ai_summary'] ?? '').toString();
+              final note = (s['patient_note'] ?? '').toString();
+              return Card(
+                margin: const EdgeInsets.only(bottom: 10),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _isDoctorish
+                            ? (patientName.isEmpty ? 'Patient share' : patientName)
+                            : (providerName.isEmpty ? 'Doctor share' : providerName),
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      if (note.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(note, style: TextStyle(color: Colors.grey.shade800)),
+                      ],
+                      if (summary.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Text('AI summary', style: TextStyle(fontWeight: FontWeight.w800, color: Colors.purple.shade800)),
+                        const SizedBox(height: 6),
+                        Text(summary),
+                      ],
+                      if (_isDoctorish && id != null) ...[
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                await widget.api.deleteShare(id);
+                                if (!mounted) return;
+                                await _load();
+                              },
+                              icon: const Icon(Icons.delete_outline),
+                              label: const Text('Delete'),
+                            ),
+                            const SizedBox(width: 10),
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                if (!mounted) return;
+                                final messenger = ScaffoldMessenger.of(context);
+                                final res = await widget.api.emailShare(id);
+                                final msg = (res['message'] ?? 'Sent').toString();
+                                messenger.showSnackBar(SnackBar(content: Text(msg)));
+                              },
+                              icon: const Icon(Icons.email_outlined),
+                              label: const Text('Email patient'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              );
+            }),
+        ],
+      ),
     );
   }
 }

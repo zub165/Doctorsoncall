@@ -108,5 +108,10 @@ export const ApiPaths = {
   settingsGeneralKey: (key) => `settings/general/${encodeURIComponent(String(key))}/`,
   documents: 'documents/',
   documentDetail: (id) => `documents/${encodeURIComponent(String(id))}/`,
+  sharesMine: 'shares/mine/',
+  sharesInbox: 'shares/inbox/',
+  sharesCreate: 'shares/',
+  shareDetail: (id) => `shares/${encodeURIComponent(String(id))}/`,
+  shareEmail: (id) => `shares/${encodeURIComponent(String(id))}/email/`,
 };
 

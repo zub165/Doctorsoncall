@@ -199,7 +199,7 @@ class _AppShellState extends State<AppShell> {
           ),
           ProviderApplyScreen(apiClient: c),
           AdminHubScreen(apiClient: c),
-          MedicalRecordsHubScreen(apiClient: c),
+          MedicalRecordsHubScreen(apiClient: c, role: widget.role),
         ],
       ),
     );

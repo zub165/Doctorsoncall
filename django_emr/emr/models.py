@@ -363,3 +363,29 @@ class PatientDocument(models.Model):
     class Meta:
         db_table = "patient_documents"
         ordering = ["-id"]
+
+
+class PatientShare(models.Model):
+    """
+    Consent-based share from patient → provider/doctor.
+
+    HIPAA note: By default, keep sensitive PII on device; only store what patient
+    explicitly submits in `patient_note` / attachments. AI outputs are advisory.
+    """
+
+    class Status(models.TextChoices):
+        SENT = "sent", "sent"
+        VIEWED = "viewed", "viewed"
+        DELETED = "deleted", "deleted"
+
+    patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name="shares")
+    provider = models.ForeignKey(Provider, on_delete=models.CASCADE, related_name="shares_inbox")
+    patient_note = models.TextField(blank=True)
+    ai_summary = models.TextField(blank=True)
+    include_patient_email = models.BooleanField(default=False)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.SENT)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "patient_shares"
+        ordering = ["-id"]

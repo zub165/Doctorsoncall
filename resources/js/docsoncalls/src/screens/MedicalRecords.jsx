@@ -2,7 +2,7 @@ import React from 'react';
 import { api, ApiPaths } from '../api.js';
 
 export function MedicalRecords() {
-  const [tab, setTab] = React.useState('records'); // records | ai | docs
+  const [tab, setTab] = React.useState('records'); // records | ai | docs | share
   const [prompt, setPrompt] = React.useState('');
   const [ai, setAi] = React.useState({ loading: false, error: '', data: null });
   const [impOpen, setImpOpen] = React.useState(false);
@@ -10,6 +10,16 @@ export function MedicalRecords() {
   const [upload, setUpload] = React.useState({ loading: false, ok: '', error: '' });
   const [picked, setPicked] = React.useState(null);
   const [activeDoc, setActiveDoc] = React.useState({ id: null, loading: false, error: '', data: null });
+  const [share, setShare] = React.useState({
+    note: '',
+    provider_id: '',
+    include_email: false,
+    sending: false,
+    error: '',
+    ok: '',
+  });
+  const [shareMine, setShareMine] = React.useState({ loading: true, items: [], error: '' });
+  const [providers, setProviders] = React.useState({ loading: true, items: [], error: '' });
   const [imp, setImp] = React.useState({
     source_url: '',
     patient_email: '',
@@ -58,6 +68,56 @@ export function MedicalRecords() {
     loadDocs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function loadProviders() {
+    setProviders({ loading: true, items: [], error: '' });
+    try {
+      const { data } = await api.get(ApiPaths.providers);
+      const items = Array.isArray(data) ? data : data?.results || data?.data || [];
+      setProviders({ loading: false, items: Array.isArray(items) ? items : [], error: '' });
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.message || 'Failed to load providers.';
+      setProviders({ loading: false, items: [], error: msg.toString() });
+    }
+  }
+
+  async function loadSharesMine() {
+    setShareMine((s) => ({ ...s, loading: true, error: '' }));
+    try {
+      const { data } = await api.get(ApiPaths.sharesMine);
+      const items = Array.isArray(data) ? data : data?.data?.results || data?.results || [];
+      setShareMine({ loading: false, items: Array.isArray(items) ? items : [], error: '' });
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.message || 'Failed to load shares.';
+      setShareMine({ loading: false, items: [], error: msg.toString() });
+    }
+  }
+
+  React.useEffect(() => {
+    loadProviders();
+    loadSharesMine();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function sendShare(e) {
+    e?.preventDefault?.();
+    setShare((s) => ({ ...s, sending: true, error: '', ok: '' }));
+    try {
+      const provider_id = Number(share.provider_id);
+      const note = share.note.trim();
+      if (!provider_id || !note) throw new Error('Select doctor and write a note.');
+      await api.post(ApiPaths.sharesCreate, {
+        provider_id,
+        patient_note: note,
+        include_patient_email: Boolean(share.include_email),
+      });
+      setShare({ note: '', provider_id: '', include_email: false, sending: false, error: '', ok: 'Shared with doctor.' });
+      loadSharesMine();
+    } catch (err) {
+      const msg = err?.response?.data?.message || err?.message || 'Share failed';
+      setShare((s) => ({ ...s, sending: false, error: msg.toString(), ok: '' }));
+    }
+  }
 
   async function runAi(e) {
     e?.preventDefault?.();
@@ -180,10 +240,83 @@ export function MedicalRecords() {
             <span aria-hidden="true">📎</span>
             Documents
           </button>
+          <button className="dc-tab" type="button" data-active={tab === 'share' ? 'true' : 'false'} onClick={() => setTab('share')}>
+            <span aria-hidden="true">↗️</span>
+            Share
+          </button>
         </div>
       </div>
 
-      {tab === 'docs' ? (
+      {tab === 'share' ? (
+        <div className="dc-row" style={{ gap: 14 }}>
+          <div className="dc-card" style={{ padding: 16 }}>
+            <div style={{ fontWeight: 950, marginBottom: 8 }}>HIPAA / Safety disclaimer</div>
+            <div style={{ color: 'var(--dc-muted)', fontWeight: 800, fontSize: 13 }}>
+              For care coordination only. Do not share highly sensitive information unless necessary. AI summaries may be incomplete; clinicians must verify against source records. If emergency, call local emergency services.
+            </div>
+          </div>
+
+          <div className="dc-card" style={{ padding: 16 }}>
+            <div style={{ fontWeight: 950, marginBottom: 10 }}>Share with doctor</div>
+            <form className="dc-row" onSubmit={sendShare} style={{ gap: 12 }}>
+              <select className="dc-input" value={share.provider_id} onChange={(e) => setShare((s) => ({ ...s, provider_id: e.target.value }))}>
+                <option value="">Select doctor…</option>
+                {(providers.items || []).map((p) => (
+                  <option key={p?.id} value={p?.id}>
+                    {(p?.full_name || p?.name || `Provider #${p?.id}`).toString()}
+                  </option>
+                ))}
+              </select>
+              <textarea
+                className="dc-input"
+                rows={5}
+                placeholder="Symptoms, concerns, key history, questions…"
+                value={share.note}
+                onChange={(e) => setShare((s) => ({ ...s, note: e.target.value }))}
+              />
+              <label style={{ display: 'flex', gap: 10, alignItems: 'center', fontWeight: 850, color: 'rgba(17,24,39,0.8)' }}>
+                <input type="checkbox" checked={share.include_email} onChange={(e) => setShare((s) => ({ ...s, include_email: e.target.checked }))} />
+                Allow doctor to email me the summary
+              </label>
+              {share.error ? <div style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>{share.error}</div> : null}
+              {share.ok ? <div style={{ color: 'var(--dc-primary)', fontWeight: 950 }}>{share.ok}</div> : null}
+              <button className="dc-btn dc-btn-primary" disabled={share.sending} style={{ padding: 14, borderRadius: 16, fontWeight: 950 }}>
+                {share.sending ? 'Sharing…' : 'Share'}
+              </button>
+            </form>
+          </div>
+
+          <div style={{ fontWeight: 950, fontSize: 16 }}>My shares</div>
+          {shareMine.loading ? (
+            <div className="dc-card" style={{ color: 'var(--dc-muted)' }}>
+              Loading…
+            </div>
+          ) : shareMine.error ? (
+            <div className="dc-card" style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>
+              {shareMine.error}
+            </div>
+          ) : shareMine.items.length === 0 ? (
+            <div className="dc-card" style={{ color: 'var(--dc-muted)' }}>
+              No shares yet.
+            </div>
+          ) : (
+            <div className="dc-list">
+              {shareMine.items.slice(0, 50).map((s, idx) => (
+                <div className="dc-list-row" key={s?.id || `s-${idx}`}>
+                  <div className="dc-list-left">
+                    <div className="dc-avatar">↗️</div>
+                    <div className="dc-list-text">
+                      <div className="dc-list-title">{(s?.provider?.full_name || 'Doctor').toString()}</div>
+                      <div className="dc-list-sub">{(s?.ai_summary || s?.patient_note || '').toString().slice(0, 90)}</div>
+                    </div>
+                  </div>
+                  <div className="dc-chevron">›</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : tab === 'docs' ? (
         <div className="dc-row" style={{ gap: 14 }}>
           <div className="dc-card" style={{ padding: 16 }}>
             <div style={{ fontWeight: 950, fontSize: 18, marginBottom: 10 }}>Upload document (PDF or image)</div>

@@ -88,6 +88,13 @@ class ApiPaths {
   static const documents = 'documents/';
   static String documentDetail(int id) => 'documents/$id/';
 
+  // --- Patient consent share (patient → provider) ---
+  static const sharesMine = 'shares/mine/';
+  static const sharesInbox = 'shares/inbox/';
+  static const sharesCreate = 'shares/';
+  static String shareDetail(int id) => 'shares/$id/';
+  static String shareEmail(int id) => 'shares/$id/email/';
+
   /// Alias for [feedbackSubmit] (legacy call sites).
   static const feedback = feedbackSubmit;
 }

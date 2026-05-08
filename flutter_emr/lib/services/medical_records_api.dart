@@ -142,4 +142,63 @@ class MedicalRecordsApi {
     if (data is Map) return Map<String, dynamic>.from(data);
     return const {};
   }
+
+  // --- Consent share (patient → doctor) ---
+
+  Future<List<Map<String, dynamic>>> myShares() async {
+    final r = await _c.raw.get<dynamic>(ApiPaths.sharesMine);
+    final data = r.data;
+    if (data is Map<String, dynamic>) {
+      final inner = ApiEnvelope.dataMap(data);
+      final list = inner?['results'] ?? data['results'];
+      if (list is List) {
+        return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      }
+    }
+    return const [];
+  }
+
+  Future<List<Map<String, dynamic>>> inboxShares() async {
+    final r = await _c.raw.get<dynamic>(ApiPaths.sharesInbox);
+    final data = r.data;
+    if (data is Map<String, dynamic>) {
+      final inner = ApiEnvelope.dataMap(data);
+      final list = inner?['results'] ?? data['results'];
+      if (list is List) {
+        return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      }
+    }
+    return const [];
+  }
+
+  Future<Map<String, dynamic>> createShare({
+    required int providerId,
+    required String note,
+    required bool includePatientEmail,
+  }) async {
+    final r = await _c.raw.post<dynamic>(
+      ApiPaths.sharesCreate,
+      data: {
+        'provider_id': providerId,
+        'patient_note': note,
+        'include_patient_email': includePatientEmail,
+      },
+    );
+    final data = r.data;
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return const {};
+  }
+
+  Future<void> deleteShare(int id) async {
+    await _c.raw.delete<dynamic>(ApiPaths.shareDetail(id));
+  }
+
+  Future<Map<String, dynamic>> emailShare(int id) async {
+    final r = await _c.raw.post<dynamic>(ApiPaths.shareEmail(id));
+    final data = r.data;
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return const {};
+  }
 }

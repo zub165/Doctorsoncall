@@ -38,6 +38,7 @@ from .models import (
     Speciality,
     Timezone,
     PatientDocument,
+    PatientShare,
 )
 from .serializers import (
     AppointmentSerializer,
@@ -58,6 +59,7 @@ from .serializers import (
     SpecialitySerializer,
     TimezoneSerializer,
     PatientDocumentSerializer,
+    PatientShareSerializer,
 )
 
 
@@ -1939,3 +1941,157 @@ def medical_records_ai_assist(request):
             {"status": "error", "message": "AI error", "detail": str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+
+HIPAA_DISCLAIMER = (
+    "Disclaimer: This feature is for care coordination only and does not provide medical advice. "
+    "Do not share highly sensitive information unless necessary. "
+    "AI summaries may be incomplete or incorrect; clinicians must verify against source records. "
+    "If you have an emergency, call local emergency services."
+)
+
+
+@api_view(["GET"])
+@authentication_classes([TokenAuthentication, SessionAuthentication])
+@permission_classes([IsAuthenticated])
+def shares_mine(request):
+    """Patient view: shares created by the logged-in patient."""
+    user = request.user
+    p = _get_patient_for_user(user)
+    if not p:
+        return _success({"results": [], "disclaimer": HIPAA_DISCLAIMER})
+    qs = PatientShare.objects.filter(patient=p)[:200]
+    ser = PatientShareSerializer(qs, many=True)
+    return _success({"results": ser.data, "disclaimer": HIPAA_DISCLAIMER})
+
+
+@api_view(["GET"])
+@authentication_classes([TokenAuthentication, SessionAuthentication])
+@permission_classes([IsAuthenticated])
+def shares_inbox(request):
+    """Provider/staff view: shares sent to this provider."""
+    user = request.user
+    if _is_staffish(user):
+        qs = PatientShare.objects.all()[:200]
+    else:
+        prov = Provider.objects.filter(user=user).first()
+        if not prov:
+            return _error({"detail": ["Only providers can access inbox."]}, status.HTTP_403_FORBIDDEN)
+        qs = PatientShare.objects.filter(provider=prov)[:200]
+    ser = PatientShareSerializer(qs, many=True)
+    return _success({"results": ser.data, "disclaimer": HIPAA_DISCLAIMER})
+
+
+@api_view(["POST"])
+@authentication_classes([TokenAuthentication, SessionAuthentication])
+@permission_classes([IsAuthenticated])
+def shares_create(request):
+    """
+    Patient creates a share. Body:
+      - provider_id (required)
+      - patient_note (optional)
+      - include_patient_email (optional bool)
+    """
+    user = request.user
+    p = _get_patient_for_user(user)
+    if not p:
+        return _error({"patient": ["No patient profile found for this user."]})
+    try:
+        provider_id = int(request.data.get("provider_id"))
+    except (TypeError, ValueError):
+        return _error({"provider_id": ["invalid"]})
+    prov = Provider.objects.filter(id=provider_id).first()
+    if not prov:
+        return _error({"provider_id": ["not found"]}, status.HTTP_404_NOT_FOUND)
+
+    note = str(request.data.get("patient_note") or request.data.get("note") or "").strip()[:8000]
+    include_email = bool(request.data.get("include_patient_email") in (True, "true", "1", 1, "yes"))
+
+    # Build an AI context from the patient's most recent records + their note.
+    recent = MedicalRecord.objects.filter(patient=p).order_by("-id")[:10]
+    recent_text = "\n".join(
+        [f"- {r.title}: {(r.ai_summary or r.raw_payload or '')}"[:2000] for r in recent]
+    ).strip()
+    ctx = f"PATIENT NOTE:\n{note}\n\nRECENT RECORDS:\n{recent_text}\n"
+    q = (
+        "Summarize this patient's shared information for the clinician. "
+        "Use bullet points, highlight urgent red flags, and list follow-up questions."
+    )
+
+    base = (getattr(settings, "OLLAMA_BASE_URL", "") or "").strip() or "http://127.0.0.1:11434"
+    model = (getattr(settings, "OLLAMA_MODEL", "") or "").strip() or "llama3.1"
+    url = base.rstrip("/") + "/api/generate"
+    system = (
+        "You are a medical assistant. Provide general information only, not a diagnosis. "
+        "Keep it concise. Do not invent facts. If data is missing, say so."
+    )
+    prompt = f"{system}\n\nTASK:\n{q}\n\nDATA:\n{ctx}\n\nASSISTANT:\n"
+    summary = ""
+    try:
+        payload = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode("utf-8")
+        req = Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+        with urlopen(req, timeout=60) as resp:
+            raw = resp.read().decode("utf-8", errors="ignore")
+        out = json.loads(raw) if raw else {}
+        summary = str(out.get("response") or "").strip()
+    except Exception as e:
+        summary = f"(AI unavailable) {e}"
+
+    share = PatientShare.objects.create(
+        patient=p,
+        provider=prov,
+        patient_note=note,
+        ai_summary=summary[:20000],
+        include_patient_email=include_email,
+        status=PatientShare.Status.SENT,
+    )
+    ser = PatientShareSerializer(share)
+    return _success({"share": ser.data, "disclaimer": HIPAA_DISCLAIMER}, message="Shared")
+
+
+@api_view(["DELETE"])
+@authentication_classes([TokenAuthentication, SessionAuthentication])
+@permission_classes([IsAuthenticated])
+def shares_delete(request, share_id: int):
+    """Provider/staff can delete a share from server (or patient deletes their own)."""
+    user = request.user
+    share = PatientShare.objects.filter(id=share_id).first()
+    if not share:
+        return _error({"share": ["not found"]}, status.HTTP_404_NOT_FOUND)
+    if _is_staffish(user):
+        share.delete()
+        return _success(message="Deleted")
+    prov = Provider.objects.filter(user=user).first()
+    pat = _get_patient_for_user(user)
+    if (prov and share.provider_id == prov.id) or (pat and share.patient_id == pat.id):
+        share.delete()
+        return _success(message="Deleted")
+    return _error({"detail": ["forbidden"]}, status.HTTP_403_FORBIDDEN)
+
+
+@api_view(["POST"])
+@authentication_classes([TokenAuthentication, SessionAuthentication])
+@permission_classes([IsAuthenticated])
+def shares_email_patient(request, share_id: int):
+    """Provider/staff can email the summary to the patient (if consented)."""
+    from django.core.mail import send_mail
+
+    user = request.user
+    share = PatientShare.objects.select_related("patient").filter(id=share_id).first()
+    if not share:
+        return _error({"share": ["not found"]}, status.HTTP_404_NOT_FOUND)
+
+    if not (_is_staffish(user) or Provider.objects.filter(user=user, id=share.provider_id).exists()):
+        return _error({"detail": ["forbidden"]}, status.HTTP_403_FORBIDDEN)
+
+    patient_email = share.patient.email if share.include_patient_email else ""
+    if not patient_email:
+        return _error({"email": ["Patient did not consent to email sharing."]}, status.HTTP_400_BAD_REQUEST)
+
+    subject = "Your shared medical summary"
+    body = f"{HIPAA_DISCLAIMER}\n\nSUMMARY:\n{share.ai_summary}\n\nPATIENT NOTE:\n{share.patient_note}\n"
+    try:
+        send_mail(subject, body, None, [patient_email], fail_silently=False)
+        return _success(message="Email sent")
+    except Exception as e:
+        return _error({"email": [str(e)]}, status.HTTP_500_INTERNAL_SERVER_ERROR)
