@@ -78,13 +78,8 @@ def _portal_allows_login(portal, user):
             return False, (
                 "This portal is for patients. Use Doctor sign-in for clinical accounts."
             )
-        patient = Patient.objects.filter(user=user).first()
-        if patient and (patient.profile_status or "").lower().strip() in (
-            "pending",
-            "submitted",
-            "awaiting-approval",
-        ):
-            return False, "Your patient registration is pending admin approval."
+        # Patients no longer require admin approval to sign in.
+        # Admins can still edit patient records or credentials via Django Admin.
         return True, None
     if portal in ("doctor", "provider", "physician"):
         if not user.provider_profiles.exists():
@@ -255,7 +250,7 @@ def auth_register(request):
         return _error(ser.errors, status.HTTP_400_BAD_REQUEST)
 
     user = ser.save()
-    # Create a minimal patient profile so admin can approve/reject.
+    # Create a minimal patient profile immediately active (no approval gate).
     # Providers (doctors) must apply via a separate flow.
     portal = str(ser.validated_data.get("portal") or "").lower().strip()
     if portal in ("patient", "user", ""):
@@ -265,7 +260,7 @@ def auth_register(request):
                 "name": user.get_full_name() or user.username,
                 "date_of_birth": "Unknown",
                 "email": user.email,
-                "profile_status": "pending",
+                "profile_status": "approved",
             },
         )
     token, _ = Token.objects.get_or_create(user=user)
