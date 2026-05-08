@@ -116,5 +116,7 @@ export const ApiPaths = {
   patientMe: 'patient/me/',
   billingStatus: 'billing/status/',
   billingCheckout: 'billing/checkout/',
+  ocrImage: 'ocr/image/',
+  ocrPdf: 'ocr/pdf/',
 };
 

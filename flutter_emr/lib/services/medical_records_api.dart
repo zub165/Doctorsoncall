@@ -143,6 +143,51 @@ class MedicalRecordsApi {
     return const {};
   }
 
+  // --- OCR (direct) ---
+
+  Future<Map<String, dynamic>> ocrImage({
+    required String filePath,
+    String? filename,
+    String lang = 'eng',
+  }) async {
+    final form = FormData.fromMap({
+      'file': await MultipartFile.fromFile(filePath, filename: filename),
+      if (lang.trim().isNotEmpty) 'lang': lang.trim(),
+    });
+    final r = await _c.raw.post<dynamic>(
+      ApiPaths.ocrImage,
+      data: form,
+      options: Options(contentType: 'multipart/form-data'),
+    );
+    final data = r.data;
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return const {};
+  }
+
+  Future<Map<String, dynamic>> ocrPdf({
+    required String filePath,
+    String? filename,
+    String lang = 'eng',
+    int dpi = 200,
+  }) async {
+    final safeDpi = dpi.clamp(72, 400);
+    final form = FormData.fromMap({
+      'file': await MultipartFile.fromFile(filePath, filename: filename),
+      if (lang.trim().isNotEmpty) 'lang': lang.trim(),
+      'dpi': safeDpi,
+    });
+    final r = await _c.raw.post<dynamic>(
+      ApiPaths.ocrPdf,
+      data: form,
+      options: Options(contentType: 'multipart/form-data'),
+    );
+    final data = r.data;
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return const {};
+  }
+
   // --- Consent share (patient → doctor) ---
 
   Future<List<Map<String, dynamic>>> myShares() async {

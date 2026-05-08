@@ -402,6 +402,8 @@ class _DocumentsTabState extends State<_DocumentsTab> {
   bool _uploading = false;
   bool _processing = false;
   int? _processingId;
+  bool _ocring = false;
+  String? _ocrText;
 
   @override
   void initState() {
@@ -459,6 +461,46 @@ class _DocumentsTabState extends State<_DocumentsTab> {
     } catch (e) {
       setState(() {
         _uploading = false;
+        _error = e.toString();
+      });
+    }
+  }
+
+  Future<void> _pickAndOcrDirect() async {
+    setState(() {
+      _ocring = true;
+      _ocrText = null;
+      _error = null;
+    });
+    try {
+      final res = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'png', 'jpg', 'jpeg'],
+      );
+      final path = res?.files.single.path;
+      if (path == null || path.isEmpty) {
+        setState(() => _ocring = false);
+        return;
+      }
+      final name = res?.files.single.name;
+      final lower = (name ?? path).toLowerCase();
+      final out = lower.endsWith('.pdf')
+          ? await widget.api.ocrPdf(filePath: path, filename: name)
+          : await widget.api.ocrImage(filePath: path, filename: name);
+      final m = Map<String, dynamic>.from(out);
+      final text =
+          (m['data'] is Map ? (m['data'] as Map)['text'] : null) ??
+              m['text'] ??
+              (m['data'] is Map ? (m['data'] as Map)['ocr_text'] : null) ??
+              m['ocr_text'] ??
+              '';
+      setState(() {
+        _ocring = false;
+        _ocrText = text.toString().trim().isNotEmpty ? text.toString() : jsonEncode(m);
+      });
+    } catch (e) {
+      setState(() {
+        _ocring = false;
         _error = e.toString();
       });
     }
@@ -542,6 +584,43 @@ class _DocumentsTabState extends State<_DocumentsTab> {
               ),
             ],
           ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Direct OCR (new endpoint)',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w800),
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: _ocring ? null : _pickAndOcrDirect,
+                icon: _ocring
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: AppColors.primary,
+                        ),
+                      )
+                    : const Icon(Icons.text_snippet_outlined),
+                label: Text(_ocring ? 'Running…' : 'Run OCR'),
+              ),
+            ],
+          ),
+          if (_ocrText != null && _ocrText!.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: SelectableText(_ocrText!),
+              ),
+            ),
+          ],
           const SizedBox(height: 10),
           Text(
             'After upload, tap Process to run OCR/text extraction and generate a doctor report.',

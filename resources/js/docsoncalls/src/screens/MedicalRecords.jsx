@@ -8,6 +8,7 @@ export function MedicalRecords() {
   const [impOpen, setImpOpen] = React.useState(false);
   const [docs, setDocs] = React.useState({ loading: true, items: [], error: '' });
   const [upload, setUpload] = React.useState({ loading: false, ok: '', error: '' });
+  const [ocr, setOcr] = React.useState({ loading: false, ok: '', error: '', text: '' });
   const [picked, setPicked] = React.useState(null);
   const [activeDoc, setActiveDoc] = React.useState({ id: null, loading: false, error: '', data: null });
   const [share, setShare] = React.useState({
@@ -203,6 +204,32 @@ export function MedicalRecords() {
     }
   }
 
+  async function runOcrOnPicked(e) {
+    e?.preventDefault?.();
+    if (!picked) return;
+    setOcr({ loading: true, ok: '', error: '', text: '' });
+    try {
+      const isPdf = (picked?.type || '').toLowerCase().includes('pdf') || picked?.name?.toLowerCase?.().endsWith?.('.pdf');
+      const fd = new FormData();
+      fd.append('file', picked);
+      fd.append('lang', 'eng');
+      if (isPdf) fd.append('dpi', '200');
+      const path = isPdf ? ApiPaths.ocrPdf : ApiPaths.ocrImage;
+      const { data } = await api.post(path, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const text =
+        (data?.data?.text ?? data?.text ?? data?.data?.ocr_text ?? data?.ocr_text ?? data?.result ?? '').toString();
+      setOcr({ loading: false, ok: 'OCR done.', error: '', text: text || JSON.stringify(data ?? {}, null, 2) });
+    } catch (err) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.response?.data?.detail ||
+        (err?.response?.data?.errors ? JSON.stringify(err.response.data.errors) : '') ||
+        err?.message ||
+        'OCR failed';
+      setOcr({ loading: false, ok: '', error: msg.toString(), text: '' });
+    }
+  }
+
   async function processDoc(id) {
     if (!id) return;
     setActiveDoc({ id, loading: true, error: '', data: null });
@@ -333,6 +360,19 @@ export function MedicalRecords() {
                 {upload.loading ? 'Uploading…' : 'Upload'}
               </button>
             </form>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 10 }}>
+              <button className="dc-btn" type="button" onClick={runOcrOnPicked} disabled={ocr.loading || !picked} style={{ fontWeight: 950 }}>
+                {ocr.loading ? 'Running OCR…' : 'Run OCR (direct)'}
+              </button>
+              {ocr.error ? <div style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>{ocr.error}</div> : null}
+              {ocr.ok ? <div style={{ color: 'var(--dc-primary-dark)', fontWeight: 900 }}>{ocr.ok}</div> : null}
+            </div>
+            {ocr.text ? (
+              <div className="dc-card" style={{ marginTop: 12, background: 'white' }}>
+                <div style={{ fontWeight: 950, marginBottom: 8 }}>OCR text</div>
+                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 12 }}>{ocr.text}</pre>
+              </div>
+            ) : null}
             <div style={{ marginTop: 10, color: 'var(--dc-muted)', fontSize: 12, fontWeight: 800 }}>
               After upload, click “Process” to run text extraction/OCR and generate the doctor report.
             </div>

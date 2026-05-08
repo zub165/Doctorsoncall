@@ -104,6 +104,10 @@ class ApiPaths {
   static const billingStatus = 'billing/status/';
   static const billingCheckout = 'billing/checkout/';
 
+  // --- OCR (direct endpoints) ---
+  static const ocrImage = 'ocr/image/';
+  static const ocrPdf = 'ocr/pdf/';
+
   /// Alias for [feedbackSubmit] (legacy call sites).
   static const feedback = feedbackSubmit;
 }
