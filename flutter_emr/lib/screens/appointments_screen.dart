@@ -11,11 +11,13 @@ class AppointmentsScreen extends StatefulWidget {
     required this.apiClient,
     this.onNavigateToTab,
     this.focusDate,
+    this.role,
   });
 
   final EmergencyApiClient apiClient;
   final ValueChanged<int>? onNavigateToTab;
   final ValueNotifier<DateTime>? focusDate;
+  final String? role;
 
   @override
   State<AppointmentsScreen> createState() => _AppointmentsScreenState();
@@ -54,7 +56,10 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
 
   void _loadAppointments() {
     setState(() {
-      _appointmentsFuture = _api.myAppointments();
+      final role = (widget.role ?? '').toLowerCase().trim();
+      final isAdmin = role == 'admin' || role == 'administrator' || role == 'staff';
+      final isDoctor = role == 'doctor' || role == 'provider' || role == 'physician';
+      _appointmentsFuture = (isAdmin || isDoctor) ? _api.allAppointments() : _api.myAppointments();
     });
   }
 
@@ -92,7 +97,11 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           }
 
           final data = snap.data;
-          final raw = data is Map ? (data['appointments'] ?? const []) : const [];
+          final raw = data is Map
+              ? ((data['appointments'] ??
+                      (data['data'] is Map ? (data['data']['appointments'] ?? const []) : const [])) ??
+                  const [])
+              : const [];
           final List<dynamic> appointments = raw is List ? raw : const [];
 
           // Calendar + filtered list by selected day.
@@ -159,8 +168,16 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
               else
                 ...dayAppointments.map((a) {
                   if (a is Map) {
+                    final role = (widget.role ?? '').toLowerCase().trim();
+                    final isAdmin = role == 'admin' ||
+                        role == 'administrator' ||
+                        role == 'staff';
+                    final isDoctor = role == 'doctor' ||
+                        role == 'provider' ||
+                        role == 'physician';
                     return _buildAppointmentCard(
                       Map<String, dynamic>.from(a),
+                      showPatient: isAdmin || isDoctor,
                     );
                   }
                   return const SizedBox.shrink();
@@ -209,11 +226,17 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     );
   }
 
-  Widget _buildAppointmentCard(Map<String, dynamic> appt) {
+  Widget _buildAppointmentCard(
+    Map<String, dynamic> appt, {
+    required bool showPatient,
+  }) {
     final date = appt['date'] ?? 'TBD';
     final time = appt['time'] ?? 'TBD';
     final approved = appt['approved'] ?? 'pending';
     final providerName = appt['provider']?['full_name'] ?? 'Unknown Provider';
+    final patientName = appt['patient']?['name'] ??
+        appt['patient']?['full_name'] ??
+        'Unknown Patient';
     final medium = appt['medium'] ?? 'video';
 
     Color statusColor;
@@ -272,12 +295,23 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        providerName,
+                        showPatient ? patientName : providerName,
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
                         ),
                       ),
+                      if (showPatient) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          'With $providerName',
+                          style: const TextStyle(
+                            color: Colors.grey,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 4),
                       Row(
                         children: [

@@ -195,7 +195,7 @@ function TabRouter({ isAdmin, isDoctor, isPatient }) {
     case 5:
       return <SoapNotes />;
     case 6:
-      return <Appointments />;
+      return <Appointments isAdmin={isAdmin} isDoctor={isDoctor} isPatient={isPatient} />;
     case 7:
       return <DoctorVisit />;
     case 8:

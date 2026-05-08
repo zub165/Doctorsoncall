@@ -25,7 +25,7 @@ function startOfCalendarGrid(monthDate) {
   return d;
 }
 
-export function Appointments() {
+export function Appointments({ isAdmin = false, isDoctor = false } = {}) {
   const [state, setState] = React.useState({
     loading: true,
     items: [],
@@ -42,7 +42,8 @@ export function Appointments() {
     let alive = true;
     (async () => {
       try {
-        const { data } = await api.get(ApiPaths.myAppointments);
+        const path = isAdmin || isDoctor ? ApiPaths.allAppointments : ApiPaths.myAppointments;
+        const { data } = await api.get(path);
         const root = data ?? {};
         const d = root?.data ?? root;
         const items =
@@ -63,7 +64,7 @@ export function Appointments() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [isAdmin, isDoctor]);
 
   const appts = React.useMemo(() => {
     return Array.isArray(state.items) ? state.items : [];
@@ -190,8 +191,28 @@ export function Appointments() {
               <div className="dc-list-left">
                 <div className="dc-avatar">📅</div>
                 <div className="dc-list-text">
-                  <div className="dc-list-title">{(a?.title || a?.reason || 'Appointment').toString()}</div>
-                  <div className="dc-list-sub">{(a?.time || a?.scheduled_at || a?.created_at || '').toString()}</div>
+                  <div className="dc-list-title">
+                    {(() => {
+                      const p = a?.patient || a?.patient_data || a?.client || null;
+                      const prov = a?.provider || a?.doctor || a?.provider_data || null;
+                      const patientName = (p?.name || p?.full_name || p?.fullName || p?.first_name || '').toString().trim();
+                      const providerName = (prov?.full_name || prov?.name || prov?.fullName || '').toString().trim();
+                      if (patientName && providerName) return `${patientName} → ${providerName}`;
+                      if (providerName) return `With ${providerName}`;
+                      if (patientName) return `Booked by ${patientName}`;
+                      return (a?.title || a?.reason || 'Appointment').toString();
+                    })()}
+                  </div>
+                  <div className="dc-list-sub">
+                    {[
+                      (a?.date || '').toString(),
+                      (a?.time || '').toString(),
+                      (a?.approved || a?.status || '').toString(),
+                    ]
+                      .map((x) => x.trim())
+                      .filter(Boolean)
+                      .join(' • ') || (a?.scheduled_at || a?.created_at || '').toString()}
+                  </div>
                 </div>
               </div>
               <div className="dc-chevron">›</div>

@@ -180,6 +180,7 @@ class _AppShellState extends State<AppShell> {
             apiClient: c,
             onNavigateToTab: (i) => setState(() => _index = i),
             focusDate: _appointmentFocusDate,
+            role: widget.role,
           ),
           DoctorVisitScreen(apiClient: c),
           BookAppointmentScreen(
