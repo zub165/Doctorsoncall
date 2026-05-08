@@ -17,13 +17,27 @@ export function Hospitals() {
     let alive = true;
     (async () => {
       try {
-        const { data } = await mapsApi.get(ApiPaths.hospitals);
-        const items = Array.isArray(data) ? data : data?.results || [];
+        let data;
+        try {
+          const res = await mapsApi.get(ApiPaths.hospitals);
+          data = res.data;
+        } catch (e) {
+          const code = Number(e?.response?.status);
+          // Some deployments require auth on Maps API. Fallback to EMR hospitals list.
+          if (code === 401 || code === 403) {
+            const res2 = await emrApi.get(ApiPaths.hospitals);
+            data = res2.data;
+          } else {
+            throw e;
+          }
+        }
+        const items = Array.isArray(data) ? data : data?.results || data?.data?.results || data?.data || [];
         if (!alive) return;
         setState({ loading: false, items, error: '' });
-      } catch {
+      } catch (e) {
         if (!alive) return;
-        setState({ loading: false, items: [], error: 'Failed to load hospitals.' });
+        const msg = e?.response?.data?.message || e?.message || 'Failed to load hospitals.';
+        setState({ loading: false, items: [], error: msg.toString() });
       }
     })();
     return () => {
