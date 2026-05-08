@@ -1485,9 +1485,18 @@ function ChangePassword() {
 function ClientHub() {
   const [tab, setTab] = React.useState('home'); // home | profile | plan
   const me = useApiCall(() => api.get(ApiPaths.docOnCallMe).then((r) => r.data), []);
+  const appts = useApiCall(() => api.get(ApiPaths.myAppointments).then((r) => r.data), []);
+  const invoices = useApiCall(() => api.get(ApiPaths.invoices).then((r) => r.data), []);
+  const vitals = useApiCall(() => api.get(ApiPaths.vitals).then((r) => r.data), []);
   const user = me.data?.data?.user || me.data?.user || {};
   const fullName = (user?.full_name || user?.username || 'User').toString();
   const email = (user?.email || '').toString();
+
+  const list = (x) => (Array.isArray(x) ? x : x?.results || x?.data || x?.appointments || x?.invoices || x?.items || []);
+  const apptCount = list(appts.data).length;
+  const invCount = list(invoices.data).length;
+  const vitalsNote =
+    (typeof vitals.data?.note === 'string' && vitals.data.note) || (typeof vitals.data?.data?.note === 'string' && vitals.data.data.note) || '';
 
   return (
     <div className="dc-row" style={{ gap: 14 }}>
@@ -1649,6 +1658,14 @@ function ClientHub() {
             <div style={{ opacity: 0.9, fontWeight: 900, marginTop: 6 }}>Manage your plan, profile, and visits.</div>
           </div>
 
+          <div className="dc-card" style={{ padding: 16 }}>
+            <div style={{ fontWeight: 950, marginBottom: 8 }}>Health overview</div>
+            <div style={{ color: 'var(--dc-muted)', fontWeight: 850, fontSize: 13 }}>
+              Appointments: {apptCount} · Invoices: {invCount}
+              {vitalsNote ? ` · ${vitalsNote}` : ''}
+            </div>
+          </div>
+
           <div className="dc-grid-2">
             <Link className="dc-action" to="/shell/6">
               🗓️ Appointments
@@ -1658,6 +1675,9 @@ function ClientHub() {
             </Link>
             <Link className="dc-action" to="/shell/17">
               🧠 Medical records
+            </Link>
+            <Link className="dc-action" to="/shell/11">
+              🧾 Billing & invoices
             </Link>
             <Link className="dc-action" to="/shell/13">
               🔒 Change password

@@ -73,6 +73,7 @@ class ApiPaths {
   static const nutritionV1 = 'nutrition/v1/';
   static const nutrition = 'nutrition/';
   static const vitals = 'vitals/';
+  static const invoices = 'invoices/';
 
   /// **`GET/POST /api/medical-records/`** — list / create (see live OpenAPI).
   static const medicalRecords = 'medical-records/';

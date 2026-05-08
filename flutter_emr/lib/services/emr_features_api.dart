@@ -155,6 +155,16 @@ class EmrFeaturesApi {
     );
   }
 
+  Future<dynamic> myInvoices() async {
+    final r = await _c.raw.get<dynamic>(ApiPaths.invoices);
+    return r.data;
+  }
+
+  Future<dynamic> vitals() async {
+    final r = await _c.raw.get<dynamic>(ApiPaths.vitals);
+    return r.data;
+  }
+
   Future<dynamic> replicateToken() async {
     final r = await _c.raw.get<dynamic>(ApiPaths.replicateToken);
     return r.data;

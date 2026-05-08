@@ -194,6 +194,7 @@ class _AppShellState extends State<AppShell> {
           SettingsScreen(apiClient: c),
           ChangePasswordScreen(apiClient: c),
           ClientHubScreen(
+            apiClient: c,
             onNavigateToShellTab: (i) => setState(() => _index = i),
           ),
           ProviderApplyScreen(apiClient: c),

@@ -1,7 +1,18 @@
 import 'package:flutter/material.dart';
 
+import '../services/emergency_api_client.dart';
+import '../services/emr_features_api.dart';
+import '../services/user_api.dart';
+import '../theme/app_theme.dart';
+
 class ClientHubScreen extends StatelessWidget {
-  const ClientHubScreen({super.key, this.onNavigateToShellTab});
+  const ClientHubScreen({
+    super.key,
+    required this.apiClient,
+    this.onNavigateToShellTab,
+  });
+
+  final EmergencyApiClient apiClient;
 
   /// Switch main [AppShell] tab (e.g. open Medical records).
   final ValueChanged<int>? onNavigateToShellTab;
@@ -58,7 +69,11 @@ class ClientHubScreen extends StatelessWidget {
           title: 'Health Overview',
           subtitle: 'Your medical summary at a glance',
           color: const Color(0xFF4CAF50),
-          onTap: () => onNavigateToShellTab?.call(0),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => _HealthOverviewScreen(apiClient: apiClient),
+            ),
+          ),
         ),
         const SizedBox(height: 12),
         _buildSectionCard(
@@ -76,6 +91,11 @@ class ClientHubScreen extends StatelessWidget {
           title: 'Billing & Invoices',
           subtitle: 'Manage your payments',
           color: const Color(0xFF9C27B0),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => _InvoicesScreen(apiClient: apiClient),
+            ),
+          ),
         ),
         const SizedBox(height: 24),
         Text(
@@ -118,46 +138,56 @@ class ClientHubScreen extends StatelessWidget {
   }
 
   Widget _buildProfileTab(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Center(
-          child: Column(
-            children: [
-              const CircleAvatar(
-                radius: 50,
-                backgroundColor: Color(0xFFD32F2F),
-                child: Icon(Icons.person, size: 50, color: Colors.white),
+    return FutureBuilder<dynamic>(
+      future: UserApi(apiClient).fetchDoctorOnCallMe(),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(color: AppColors.primary),
+          );
+        }
+        final data = snap.data is Map ? Map<String, dynamic>.from(snap.data as Map) : <String, dynamic>{};
+        final user = (data['user'] is Map) ? Map<String, dynamic>.from(data['user'] as Map) : <String, dynamic>{};
+        final fullName = (user['full_name'] ?? user['username'] ?? 'User').toString();
+        final email = (user['email'] ?? '').toString();
+        final phone = (user['phone_number'] ?? user['phone'] ?? '').toString();
+
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Center(
+              child: Column(
+                children: [
+                  const CircleAvatar(
+                    radius: 50,
+                    backgroundColor: Color(0xFFD32F2F),
+                    child: Icon(Icons.person, size: 50, color: Colors.white),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    fullName,
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    email,
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(color: Colors.grey),
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
-              Text(
-                'John Doe',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              Text(
-                'john.doe@email.com',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(color: Colors.grey),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 24),
-        _buildInfoTile(Icons.badge, 'Full Name', 'John Doe'),
-        _buildInfoTile(Icons.email, 'Email', 'john.doe@email.com'),
-        _buildInfoTile(Icons.phone, 'Phone', '+1 234 567 8900'),
-        _buildInfoTile(Icons.location_on, 'Address', '123 Main Street, City'),
-        _buildInfoTile(Icons.calendar_today, 'Date of Birth', 'Jan 15, 1990'),
-        const SizedBox(height: 16),
-        ElevatedButton.icon(
-          onPressed: () {},
-          icon: const Icon(Icons.edit),
-          label: const Text('Edit Profile'),
-        ),
-      ],
+            ),
+            const SizedBox(height: 24),
+            _buildInfoTile(Icons.badge, 'Full Name', fullName),
+            _buildInfoTile(Icons.email, 'Email', email.isEmpty ? '—' : email),
+            _buildInfoTile(Icons.phone, 'Phone', phone.isEmpty ? '—' : phone),
+          ],
+        );
+      },
     );
   }
 
@@ -376,6 +406,275 @@ class ClientHubScreen extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _InvoicesScreen extends StatefulWidget {
+  const _InvoicesScreen({required this.apiClient});
+
+  final EmergencyApiClient apiClient;
+
+  @override
+  State<_InvoicesScreen> createState() => _InvoicesScreenState();
+}
+
+class _InvoicesScreenState extends State<_InvoicesScreen> {
+  bool _loading = true;
+  String? _error;
+  List<Map<String, dynamic>> _items = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  List<Map<String, dynamic>> _unwrap(dynamic data) {
+    if (data is Map) {
+      final m = Map<String, dynamic>.from(data);
+      final inner = m['data'];
+      final root = inner is Map ? Map<String, dynamic>.from(inner) : m;
+      final list = root['invoices'] ?? root['results'] ?? root['items'];
+      if (list is List) {
+        return list.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      }
+    }
+    if (data is List) {
+      return data.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    }
+    return const [];
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final data = await EmrFeaturesApi(widget.apiClient).myInvoices();
+      setState(() {
+        _items = _unwrap(data);
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _items = const [];
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Billing & invoices')),
+      body: _loading
+          ? const Center(
+              child: CircularProgressIndicator(color: AppColors.primary),
+            )
+          : _error != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.error_outline, size: 44, color: Colors.red),
+                        const SizedBox(height: 10),
+                        const Text('Could not load invoices'),
+                        const SizedBox(height: 8),
+                        Text(_error!, style: Theme.of(context).textTheme.bodySmall),
+                        const SizedBox(height: 12),
+                        FilledButton.icon(
+                          onPressed: _load,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      if (_items.isEmpty)
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Text(
+                              'No invoices yet.',
+                              style: TextStyle(color: Colors.grey.shade700),
+                            ),
+                          ),
+                        )
+                      else
+                        ..._items.map((inv) {
+                          final id = (inv['id'] ?? '').toString();
+                          final amount = (inv['amount'] ?? '').toString();
+                          final date = (inv['invoice_date'] ?? inv['date'] ?? '').toString();
+                          final name = (inv['name'] ?? 'Invoice').toString();
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 10),
+                            child: ListTile(
+                              leading: const CircleAvatar(
+                                backgroundColor: Color(0xFFF3E5F5),
+                                child: Icon(Icons.receipt_long, color: Color(0xFF9C27B0)),
+                              ),
+                              title: Text(name, style: const TextStyle(fontWeight: FontWeight.w700)),
+                              subtitle: Text([if (id.isNotEmpty) '#$id', if (date.isNotEmpty) date].join(' • ')),
+                              trailing: Text(
+                                amount.isEmpty ? '—' : '\$$amount',
+                                style: const TextStyle(fontWeight: FontWeight.w800),
+                              ),
+                            ),
+                          );
+                        }),
+                    ],
+                  ),
+                ),
+    );
+  }
+}
+
+class _HealthOverviewScreen extends StatefulWidget {
+  const _HealthOverviewScreen({required this.apiClient});
+
+  final EmergencyApiClient apiClient;
+
+  @override
+  State<_HealthOverviewScreen> createState() => _HealthOverviewScreenState();
+}
+
+class _HealthOverviewScreenState extends State<_HealthOverviewScreen> {
+  bool _loading = true;
+  String? _error;
+  int _apptCount = 0;
+  int _invCount = 0;
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final api = EmrFeaturesApi(widget.apiClient);
+      final a = await api.myAppointments();
+      final i = await api.myInvoices();
+
+      int appts = 0;
+      if (a is Map && a['appointments'] is List) appts = (a['appointments'] as List).length;
+      if (a is Map && a['data'] is Map && (a['data']['appointments'] is List)) {
+        appts = (a['data']['appointments'] as List).length;
+      }
+      if (a is Map && a['results'] is List) appts = (a['results'] as List).length;
+
+      int invs = 0;
+      if (i is Map && i['invoices'] is List) invs = (i['invoices'] as List).length;
+      if (i is Map && i['data'] is Map && (i['data']['invoices'] is List)) {
+        invs = (i['data']['invoices'] as List).length;
+      }
+
+      setState(() {
+        _apptCount = appts;
+        _invCount = invs;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Health overview')),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+          : _error != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.error_outline, size: 44, color: Colors.red),
+                        const SizedBox(height: 10),
+                        const Text('Could not load overview'),
+                        const SizedBox(height: 8),
+                        Text(_error!, style: Theme.of(context).textTheme.bodySmall),
+                        const SizedBox(height: 12),
+                        FilledButton.icon(
+                          onPressed: _load,
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'At a glance',
+                                style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                              ),
+                              const SizedBox(height: 12),
+                              _kv('Appointments', '$_apptCount'),
+                              const SizedBox(height: 8),
+                              _kv('Invoices', '$_invCount'),
+                              const SizedBox(height: 8),
+                              _kv('Vitals', 'Connected (stub)'),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(
+                            'This screen summarizes your account using live endpoints. '
+                            'Vitals are currently a stub endpoint on the backend (empty list).',
+                            style: TextStyle(color: Colors.grey.shade700),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+    );
+  }
+
+  Widget _kv(String k, String v) {
+    return Row(
+      children: [
+        Expanded(child: Text(k, style: const TextStyle(fontWeight: FontWeight.w700))),
+        Text(v, style: const TextStyle(fontWeight: FontWeight.w800)),
+      ],
     );
   }
 }

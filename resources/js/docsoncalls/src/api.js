@@ -99,6 +99,8 @@ export const ApiPaths = {
   allAppointments: 'appointments/all/',
   storeAppointment: 'appointments/',
   feedbackSubmit: 'feedback/submit/',
+  vitals: 'vitals/',
+  invoices: 'invoices/',
   medicalRecords: 'medical-records/',
   medicalRecordsAiAssist: 'medical-records/ai-assist/',
   importsSubmit: 'imports/submit/',
