@@ -8,6 +8,10 @@
   --dc-primary: #0ea5a4;
   --dc-primary-dark: #0b7f7e;
   --dc-danger: #dc2626;
+  --dc-hero-1: #d32f2f;
+  --dc-hero-2: #ff8a80;
+  --dc-ok-bg: #e9f7ee;
+  --dc-ok-text: #14532d;
 }
 
 html,
@@ -152,6 +156,109 @@ a {
 .dc-row {
   display: grid;
   gap: 12px;
+}
+
+.dc-hero {
+  border-radius: 18px;
+  padding: 18px 18px;
+  color: white;
+  background: linear-gradient(135deg, var(--dc-hero-1), var(--dc-hero-2));
+  box-shadow: 0 14px 30px rgba(185, 28, 28, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.dc-hero-title {
+  font-weight: 950;
+  font-size: 18px;
+  letter-spacing: 0.2px;
+  opacity: 0.95;
+}
+
+.dc-hero-welcome {
+  font-weight: 950;
+  font-size: 26px;
+  letter-spacing: -0.6px;
+  margin-top: 10px;
+}
+
+.dc-hero-sub {
+  opacity: 0.9;
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+.dc-section-title {
+  font-weight: 950;
+  font-size: 18px;
+  letter-spacing: -0.3px;
+  margin: 8px 0 2px;
+}
+
+.dc-grid-2 {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dc-tile {
+  background: white;
+  border: 1px solid var(--dc-border);
+  border-radius: 16px;
+  padding: 14px;
+  box-shadow: 0 8px 24px rgba(31, 41, 55, 0.06);
+  display: grid;
+  gap: 10px;
+}
+
+.dc-tile-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dc-pill {
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+}
+
+.dc-tile-value {
+  font-weight: 950;
+  font-size: 22px;
+  letter-spacing: -0.4px;
+}
+
+.dc-tile-label {
+  color: var(--dc-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.dc-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 86px;
+  border-radius: 16px;
+  border: 1px solid var(--dc-border);
+  background: white;
+  box-shadow: 0 8px 24px rgba(31, 41, 55, 0.06);
+  font-weight: 900;
+}
+
+.dc-banner-ok {
+  border-radius: 16px;
+  padding: 14px;
+  background: var(--dc-ok-bg);
+  border: 1px solid rgba(20, 83, 45, 0.18);
+  color: var(--dc-ok-text);
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
 }
 
 @media (max-width: 900px) {
