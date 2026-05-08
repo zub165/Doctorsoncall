@@ -2,6 +2,18 @@ import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, ApiPaths, tokenStore } from '../api.js';
 
+function errMessage(err) {
+  const status = err?.response?.status;
+  const data = err?.response?.data;
+  const serverMsg =
+    (data && (data.message || data.detail)) ||
+    (typeof data === 'string' ? data : '') ||
+    '';
+  if (status && serverMsg) return `${status}: ${serverMsg}`;
+  if (status) return `Request failed (${status})`;
+  return 'Login failed.';
+}
+
 export function Login() {
   const nav = useNavigate();
   const [form, setForm] = React.useState({ email: '', password: '' });
@@ -11,16 +23,23 @@ export function Login() {
     e.preventDefault();
     setState({ loading: true, error: '' });
     try {
-      const { data } = await api.post(ApiPaths.authLogin, form);
+      const payload = {
+        email: form.email,
+        password: form.password,
+        portal: 'patient',
+        role: 'patient',
+      };
+      const { data } = await api.post(ApiPaths.authLogin, payload);
       const token =
-        (data && (data.token ?? data.key ?? data.auth_token))?.toString()?.trim() || '';
+        (data && (data.data?.token ?? data.token ?? data.key ?? data.auth_token))?.toString()?.trim() ||
+        '';
       if (!token) throw new Error('No token returned');
       tokenStore.write(token);
       nav('/', { replace: true });
     } catch (err) {
       setState({
         loading: false,
-        error: 'Login failed. Check credentials and API base URL.',
+        error: errMessage(err),
       });
       return;
     }

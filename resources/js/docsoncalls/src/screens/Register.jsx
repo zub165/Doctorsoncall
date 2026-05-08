@@ -2,6 +2,18 @@ import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, ApiPaths, tokenStore } from '../api.js';
 
+function errMessage(err) {
+  const status = err?.response?.status;
+  const data = err?.response?.data;
+  const serverMsg =
+    (data && (data.message || data.detail)) ||
+    (typeof data === 'string' ? data : '') ||
+    '';
+  if (status && serverMsg) return `${status}: ${serverMsg}`;
+  if (status) return `Request failed (${status})`;
+  return 'Registration failed.';
+}
+
 export function Register() {
   const nav = useNavigate();
   const [form, setForm] = React.useState({
@@ -15,13 +27,21 @@ export function Register() {
     e.preventDefault();
     setState({ loading: true, error: '' });
     try {
-      const { data } = await api.post(ApiPaths.authRegister, form);
+      // Django `auth/register/` expects `first_name` (not `name`).
+      const payload = {
+        first_name: form.name,
+        email: form.email,
+        password: form.password,
+        portal: 'patient',
+        role: 'patient',
+      };
+      const { data } = await api.post(ApiPaths.authRegister, payload);
       const token =
         (data && (data.token ?? data.key ?? data.auth_token))?.toString()?.trim() || '';
       if (token) tokenStore.write(token);
       nav('/', { replace: true });
-    } catch {
-      setState({ loading: false, error: 'Registration failed. Check API contract.' });
+    } catch (err) {
+      setState({ loading: false, error: errMessage(err) });
       return;
     }
     setState({ loading: false, error: '' });
