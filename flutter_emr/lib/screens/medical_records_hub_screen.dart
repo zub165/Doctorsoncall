@@ -68,7 +68,7 @@ class _MedicalRecordsHubScreenState extends State<MedicalRecordsHubScreen>
             children: [
               _RecordsTab(api: _api, apiClient: widget.apiClient),
               _AiAssistantTab(api: _api),
-              _DocumentsTab(api: _api),
+              _DocumentsTab(api: _api, apiClient: widget.apiClient),
               _ShareTab(api: _api, apiClient: widget.apiClient, role: widget.role),
             ],
           ),
@@ -387,9 +387,10 @@ class _ShareTabState extends State<_ShareTab> {
 }
 
 class _DocumentsTab extends StatefulWidget {
-  const _DocumentsTab({required this.api});
+  const _DocumentsTab({required this.api, required this.apiClient});
 
   final MedicalRecordsApi api;
+  final EmergencyApiClient apiClient;
 
   @override
   State<_DocumentsTab> createState() => _DocumentsTabState();
@@ -407,11 +408,35 @@ class _DocumentsTabState extends State<_DocumentsTab> {
   String? _ocrText;
   bool _summarizing = false;
   String? _aiSummary;
+  int? _shareProviderId;
+  bool _shareIncludeEmail = false;
+  bool _sharing = false;
+  List<Map<String, dynamic>> _providers = const [];
 
   @override
   void initState() {
     super.initState();
     _reload();
+    _loadProviders();
+  }
+
+  Future<void> _loadProviders() async {
+    try {
+      final data = await EmrFeaturesApi(widget.apiClient).providers();
+      List<Map<String, dynamic>> list = [];
+      if (data is Map && data['results'] is List) {
+        list = (data['results'] as List)
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      } else if (data is List) {
+        list = data.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      }
+      if (!mounted) return;
+      setState(() => _providers = list);
+    } catch (_) {
+      // ignore
+    }
   }
 
   Future<void> _reload() async {
@@ -568,6 +593,42 @@ $text
     }
   }
 
+  Future<void> _sendSummaryToDoctor() async {
+    final summary = (_aiSummary ?? '').trim();
+    if (summary.isEmpty) {
+      setState(() => _error = 'Generate AI summary first.');
+      return;
+    }
+    final pid = _shareProviderId;
+    if (pid == null || pid <= 0) {
+      setState(() => _error = 'Select doctor to send summary.');
+      return;
+    }
+    setState(() {
+      _sharing = true;
+      _error = null;
+    });
+    try {
+      await widget.api.createShare(
+        providerId: pid,
+        note: 'Document summary from patient',
+        includePatientEmail: _shareIncludeEmail,
+        aiSummary: summary,
+      );
+      if (!mounted) return;
+      setState(() => _sharing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Summary sent to doctor.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _sharing = false;
+        _error = e.toString();
+      });
+    }
+  }
+
   Future<void> _process(int id) async {
     setState(() {
       _processing = true;
@@ -710,6 +771,55 @@ $text
                 child: Padding(
                   padding: const EdgeInsets.all(12),
                   child: SelectableText(_aiSummary!),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        'Send summary to doctor',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<int>(
+                        value: _shareProviderId,
+                        decoration: const InputDecoration(labelText: 'Doctor'),
+                        items: _providers
+                            .where((p) => p['id'] != null)
+                            .map((p) => DropdownMenuItem<int>(
+                                  value: p['id'] is int ? p['id'] as int : int.tryParse('${p['id']}'),
+                                  child: Text((p['full_name'] ?? p['name'] ?? 'Doctor').toString()),
+                                ))
+                            .toList(),
+                        onChanged: (v) => setState(() => _shareProviderId = v),
+                      ),
+                      const SizedBox(height: 8),
+                      SwitchListTile(
+                        value: _shareIncludeEmail,
+                        onChanged: (v) => setState(() => _shareIncludeEmail = v),
+                        title: const Text('Allow doctor to email me the summary'),
+                      ),
+                      const SizedBox(height: 8),
+                      FilledButton.icon(
+                        onPressed: _sharing ? null : _sendSummaryToDoctor,
+                        icon: _sharing
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.send_rounded),
+                        label: Text(_sharing ? 'Sending…' : 'Send summary'),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],

@@ -2118,6 +2118,27 @@ def shares_create(request):
 
     note = str(request.data.get("patient_note") or request.data.get("note") or "").strip()[:8000]
     include_email = bool(request.data.get("include_patient_email") in (True, "true", "1", 1, "yes"))
+    client_summary = request.data.get("ai_summary") or request.data.get("summary") or ""
+    if not isinstance(client_summary, str):
+        client_summary = json.dumps(client_summary)
+    client_summary = str(client_summary).strip()
+
+    # If the client already generated OCR+AI summary (privacy mode),
+    # accept it directly and do not attempt LLM generation server-side.
+    if client_summary:
+        share = PatientShare.objects.create(
+            patient=p,
+            provider=prov,
+            patient_note=note,
+            ai_summary=client_summary[:20000],
+            include_patient_email=include_email,
+            status=PatientShare.Status.SENT,
+        )
+        ser = PatientShareSerializer(share)
+        return _success(
+            {"share": ser.data, "disclaimer": HIPAA_DISCLAIMER},
+            message="Shared",
+        )
 
     # Build an AI context from the patient's most recent records + their note.
     recent = MedicalRecord.objects.filter(patient=p).order_by("-id")[:10]

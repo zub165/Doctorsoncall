@@ -220,6 +220,7 @@ class MedicalRecordsApi {
     required int providerId,
     required String note,
     required bool includePatientEmail,
+    String? aiSummary,
   }) async {
     final r = await _c.raw.post<dynamic>(
       ApiPaths.sharesCreate,
@@ -227,6 +228,7 @@ class MedicalRecordsApi {
         'provider_id': providerId,
         'patient_note': note,
         'include_patient_email': includePatientEmail,
+        if (aiSummary != null && aiSummary.trim().isNotEmpty) 'ai_summary': aiSummary.trim(),
       },
     );
     final data = r.data;
