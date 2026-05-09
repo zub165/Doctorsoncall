@@ -541,6 +541,24 @@ a {
   font-weight: 950;
 }
 
+.dc-pill {
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--dc-border);
+  background: #f3f4f6;
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0.6px;
+  color: var(--dc-primary-dark);
+  white-space: nowrap;
+}
+
+.dc-list-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .dc-calendar {
   background: white;
   border: 1px solid var(--dc-border);

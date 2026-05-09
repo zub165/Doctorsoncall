@@ -21,6 +21,7 @@ export function MedicalRecords() {
   });
   const [shareMine, setShareMine] = React.useState({ loading: true, items: [], error: '' });
   const [providers, setProviders] = React.useState({ loading: true, items: [], error: '' });
+  const [localShare, setLocalShare] = React.useState({ text: '', ok: '', error: '' });
   const [imp, setImp] = React.useState({
     source_url: '',
     patient_email: '',
@@ -118,6 +119,50 @@ export function MedicalRecords() {
       const msg = err?.response?.data?.message || err?.message || 'Share failed';
       setShare((s) => ({ ...s, sending: false, error: msg.toString(), ok: '' }));
     }
+  }
+
+  async function shareViaSystem() {
+    const text = (localShare.text || '').trim();
+    setLocalShare((s) => ({ ...s, ok: '', error: '' }));
+    if (!text) {
+      setLocalShare((s) => ({ ...s, error: 'Write something to share first.' }));
+      return;
+    }
+    try {
+      if (navigator.share) {
+        await navigator.share({ text, title: 'Doctor On Call — share' });
+        setLocalShare((s) => ({ ...s, ok: 'Shared.', error: '' }));
+        return;
+      }
+      await navigator.clipboard?.writeText?.(text);
+      setLocalShare((s) => ({
+        ...s,
+        ok: 'Copied to clipboard (share not supported in this browser).',
+        error: '',
+      }));
+    } catch (e) {
+      setLocalShare((s) => ({ ...s, error: (e?.message || 'Share failed').toString() }));
+    }
+  }
+
+  function shareToWhatsApp() {
+    const text = (localShare.text || '').trim();
+    setLocalShare((s) => ({ ...s, ok: '', error: '' }));
+    if (!text) {
+      setLocalShare((s) => ({ ...s, error: 'Write something to share first.' }));
+      return;
+    }
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noreferrer');
+  }
+
+  function shareToSms() {
+    const text = (localShare.text || '').trim();
+    setLocalShare((s) => ({ ...s, ok: '', error: '' }));
+    if (!text) {
+      setLocalShare((s) => ({ ...s, error: 'Write something to share first.' }));
+      return;
+    }
+    window.location.href = `sms:&body=${encodeURIComponent(text)}`;
   }
 
   async function runAi(e) {
@@ -281,6 +326,34 @@ export function MedicalRecords() {
             <div style={{ color: 'var(--dc-muted)', fontWeight: 800, fontSize: 13 }}>
               For care coordination only. Do not share highly sensitive information unless necessary. AI summaries may be incomplete; clinicians must verify against source records. If emergency, call local emergency services.
             </div>
+          </div>
+
+          <div className="dc-card" style={{ padding: 16 }}>
+            <div style={{ fontWeight: 950, marginBottom: 8 }}>Share via apps (Bluetooth · Messages · WhatsApp)</div>
+            <div style={{ color: 'var(--dc-muted)', fontWeight: 800, fontSize: 13 }}>
+              Uses your device/browser share sheet when available.
+            </div>
+            <textarea
+              className="dc-input"
+              rows={4}
+              placeholder="Text to share…"
+              value={localShare.text}
+              onChange={(e) => setLocalShare((s) => ({ ...s, text: e.target.value }))}
+              style={{ marginTop: 10 }}
+            />
+            <div style={{ display: 'flex', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
+              <button className="dc-btn dc-btn-primary" type="button" onClick={shareViaSystem} style={{ padding: 14, borderRadius: 16, fontWeight: 950 }}>
+                📤 Share
+              </button>
+              <button className="dc-btn" type="button" onClick={shareToWhatsApp} style={{ padding: 14, borderRadius: 16, fontWeight: 950 }}>
+                💬 WhatsApp
+              </button>
+              <button className="dc-btn" type="button" onClick={shareToSms} style={{ padding: 14, borderRadius: 16, fontWeight: 950 }}>
+                💬 Messages
+              </button>
+            </div>
+            {localShare.error ? <div style={{ marginTop: 10, color: 'var(--dc-danger)', fontWeight: 900 }}>{localShare.error}</div> : null}
+            {localShare.ok ? <div style={{ marginTop: 10, color: 'var(--dc-primary)', fontWeight: 950 }}>{localShare.ok}</div> : null}
           </div>
 
           <div className="dc-card" style={{ padding: 16 }}>

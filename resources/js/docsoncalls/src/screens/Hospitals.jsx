@@ -12,12 +12,19 @@ export function Hospitals() {
   const [q, setQ] = React.useState('');
   const [kind, setKind] = React.useState('all'); // all | er | urgent
   const [wait, setWait] = React.useState({ loading: false, error: '', byId: {} });
+  const [geo, setGeo] = React.useState({ status: 'idle', error: '', lat: null, lon: null }); // idle | requesting | ok | denied | error
 
-  React.useEffect(() => {
+  async function loadHospitals({ lat = null, lon = null } = {}) {
+    setState((s) => ({ ...s, loading: true, error: '' }));
     let alive = true;
-    (async () => {
-      try {
-        let data;
+    try {
+      let data;
+
+      // Prefer nearby search when we have coordinates.
+      if (Number.isFinite(Number(lat)) && Number.isFinite(Number(lon))) {
+        const res = await emrApi.get(ApiPaths.hospitalsSearch, { params: { lat, lon } });
+        data = res.data;
+      } else {
         try {
           const res = await mapsApi.get(ApiPaths.hospitals);
           data = res.data;
@@ -31,13 +38,51 @@ export function Hospitals() {
             throw e;
           }
         }
-        const items = Array.isArray(data) ? data : data?.results || data?.data?.results || data?.data || [];
-        if (!alive) return;
-        setState({ loading: false, items, error: '' });
-      } catch (e) {
-        if (!alive) return;
-        const msg = e?.response?.data?.message || e?.message || 'Failed to load hospitals.';
-        setState({ loading: false, items: [], error: msg.toString() });
+      }
+
+      const items = Array.isArray(data) ? data : data?.results || data?.data?.results || data?.data || [];
+      if (!alive) return;
+      setState({ loading: false, items, error: '' });
+    } catch (e) {
+      if (!alive) return;
+      const msg = e?.response?.data?.message || e?.message || 'Failed to load hospitals.';
+      setState({ loading: false, items: [], error: msg.toString() });
+    }
+    return () => {
+      alive = false;
+    };
+  }
+
+  async function useMyLocation() {
+    setGeo({ status: 'requesting', error: '', lat: null, lon: null });
+    if (!navigator?.geolocation) {
+      setGeo({ status: 'error', error: 'Geolocation not supported in this browser.', lat: null, lon: null });
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos?.coords?.latitude;
+        const lon = pos?.coords?.longitude;
+        setGeo({ status: 'ok', error: '', lat, lon });
+        await loadHospitals({ lat, lon });
+      },
+      async (err) => {
+        const msg = err?.message || 'Location permission denied.';
+        setGeo({ status: err?.code === 1 ? 'denied' : 'error', error: msg.toString(), lat: null, lon: null });
+        await loadHospitals();
+      },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 120000 },
+    );
+  }
+
+  React.useEffect(() => {
+    let alive = true;
+    (async () => {
+      // Try to use browser location on first load; fall back gracefully if denied.
+      try {
+        await useMyLocation();
+      } catch {
+        await loadHospitals();
       }
     })();
     return () => {
@@ -96,10 +141,10 @@ export function Hospitals() {
 
   const mapCenter = React.useMemo(() => {
     const first = items.find((x) => Number.isFinite(Number(x?.lat)) && Number.isFinite(Number(x?.lng)));
-    const lat = first ? Number(first.lat) : 37.3382;
-    const lng = first ? Number(first.lng) : -121.8863;
+    const lat = first ? Number(first.lat) : (Number.isFinite(Number(geo.lat)) ? Number(geo.lat) : 27.9506);
+    const lng = first ? Number(first.lng) : (Number.isFinite(Number(geo.lon)) ? Number(geo.lon) : -82.4572);
     return [lat, lng];
-  }, [items]);
+  }, [items, geo.lat, geo.lon]);
 
   const markers = React.useMemo(() => {
     return items
@@ -192,7 +237,25 @@ export function Hospitals() {
               onChange={(e) => setQ(e.target.value)}
               style={{ fontWeight: 700 }}
             />
+            <button
+              type="button"
+              className="dc-btn"
+              onClick={() => useMyLocation()}
+              style={{ padding: '10px 12px', borderRadius: 14, fontWeight: 950 }}
+              title="Use my location"
+            >
+              📍
+            </button>
           </div>
+          {geo.status !== 'idle' ? (
+            <div style={{ fontSize: 12, fontWeight: 800, color: geo.status === 'ok' ? 'rgba(22,101,52,0.9)' : 'rgba(146,64,14,0.95)' }}>
+              {geo.status === 'requesting'
+                ? 'Getting your location…'
+                : geo.status === 'ok'
+                  ? `Using your location: ${Number(geo.lat).toFixed(4)}, ${Number(geo.lon).toFixed(4)}`
+                  : `Location not used: ${geo.error || 'permission denied'}`}
+            </div>
+          ) : null}
 
           <div className="dc-chip-row">
             <button type="button" className="dc-chip" data-active={kind === 'all' ? 'true' : 'false'} onClick={() => setKind('all')}>

@@ -79,6 +79,7 @@ export const ApiPaths = {
   changePassword: 'auth/change-password/',
   docOnCallMe: 'doctor-on-call/me/',
   hospitals: 'hospitals/',
+  hospitalsSearch: 'hospitals/search/',
   // NOTE: prefer `mapsApi` direct calls for maps/ER time (do not mix with EMR).
   erWaitTimes: 'er-wait-times/',
   osmSystemStatus: 'osm/system-status/',

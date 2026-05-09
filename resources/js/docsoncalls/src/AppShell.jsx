@@ -814,6 +814,72 @@ function SoapNotes() {
   const [raw, setRaw] = React.useState('');
   const [soap, setSoap] = React.useState({ s: '', o: '', a: '', p: '' });
   const [ai, setAi] = React.useState({ loading: false, error: '' });
+  const [rec, setRec] = React.useState({ supported: true, listening: false, interim: '', error: '' });
+  const recRef = React.useRef(null);
+
+  React.useEffect(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      setRec((s) => ({ ...s, supported: false }));
+      return;
+    }
+    const r = new SR();
+    r.continuous = true;
+    r.interimResults = true;
+    r.lang = 'en-US';
+    r.onresult = (event) => {
+      let interim = '';
+      let finalText = '';
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const res = event.results[i];
+        const t = (res?.[0]?.transcript || '').toString();
+        if (!t) continue;
+        if (res.isFinal) finalText += t;
+        else interim += t;
+      }
+      if (interim) setRec((s) => ({ ...s, interim: interim.trim() }));
+      if (finalText.trim()) {
+        setRaw((prev) => {
+          const cur = (prev || '').trimEnd();
+          const sep = cur ? '\n' : '';
+          return `${cur}${sep}${finalText.trim()}`;
+        });
+        setRec((s) => ({ ...s, interim: '' }));
+      }
+    };
+    r.onerror = (e) => {
+      setRec((s) => ({ ...s, listening: false, error: (e?.error || 'Dictation error').toString() }));
+    };
+    r.onend = () => {
+      setRec((s) => ({ ...s, listening: false, interim: '' }));
+    };
+    recRef.current = r;
+    return () => {
+      try {
+        r.stop();
+      } catch {}
+    };
+  }, []);
+
+  function toggleDictation() {
+    if (!rec.supported) return;
+    const r = recRef.current;
+    if (!r) return;
+    if (rec.listening) {
+      try {
+        r.stop();
+      } catch {}
+      setRec((s) => ({ ...s, listening: false, interim: '' }));
+      return;
+    }
+    setRec((s) => ({ ...s, error: '' }));
+    try {
+      r.start();
+      setRec((s) => ({ ...s, listening: true }));
+    } catch (e) {
+      setRec((s) => ({ ...s, listening: false, error: (e?.message || 'Could not start dictation').toString() }));
+    }
+  }
 
   function unwrapAiAssist(data) {
     if (data && data.status === 'success' && data.data && typeof data.data === 'object') {
@@ -896,6 +962,21 @@ DICTATION:\n${text}`;
 
       <div className="dc-card" style={{ padding: 16 }}>
         <textarea className="dc-input" rows={5} placeholder="Dictation / free text" value={raw} onChange={(e) => setRaw(e.target.value)} />
+        <div style={{ display: 'flex', gap: 12, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          <button
+            className={`dc-btn ${rec.listening ? 'dc-btn-danger' : ''}`}
+            type="button"
+            onClick={toggleDictation}
+            disabled={!rec.supported}
+            style={{ minWidth: 180, fontWeight: 950 }}
+            title={rec.supported ? 'Voice dictation' : 'Dictation not supported in this browser'}
+          >
+            {rec.listening ? '🎙️ Stop dictation' : '🎙️ Start dictation'}
+          </button>
+          <div style={{ color: 'var(--dc-muted)', fontWeight: 850, flex: 1, minWidth: 200 }}>
+            {rec.listening ? (rec.interim ? `Listening… ${rec.interim}` : 'Listening…') : rec.error ? rec.error : null}
+          </div>
+        </div>
         <div style={{ display: 'flex', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
           <button className="dc-btn dc-btn-primary" type="button" onClick={aiAssist} disabled={ai.loading} style={{ flex: 1, minWidth: 220, fontWeight: 950 }}>
             ✨ AI Assist SOAP
@@ -1047,8 +1128,36 @@ function Discovery() {
         : tab === 'specialities'
           ? list(specialities.data)
           : list(providers.data);
-    if (!qq) return src;
-    return src.filter((m) => JSON.stringify(m || {}).toLowerCase().includes(qq));
+    const normalized = src
+      .map((m) => m || {})
+      .filter(Boolean)
+      .map((m) => {
+        const isCountries = tab === 'countries';
+        const isSpecs = tab === 'specialities';
+        const isProviders = tab === 'providers';
+        const title = isCountries
+          ? (m?.country_name || m?.name || 'Country')
+          : isSpecs
+            ? (m?.speciality_name || m?.name || 'Speciality')
+            : (m?.full_name || m?.name || 'Provider');
+        const code = isCountries ? (m?.country_code || m?.code || m?.iso2 || m?.abbr || '') : '';
+        const sub = isCountries
+          ? (code || '').toString()
+          : isSpecs
+            ? ((m?.country || m?.country_id || '')?.toString() || '')
+            : `${(m?.email || '').toString()}${m?.status ? ` · ${m.status}` : ''}`;
+        return { m, title: (title || '').toString(), sub: (sub || '').toString(), code: (code || '').toString() };
+      });
+
+    const filtered = !qq
+      ? normalized
+      : normalized.filter((x) => `${x.title} ${x.sub} ${x.code}`.toLowerCase().includes(qq));
+
+    // Stable, friendly ordering for Countries.
+    if (tab === 'countries') {
+      filtered.sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()));
+    }
+    return filtered;
   }, [tab, q, countries.data, specialities.data, providers.data]);
 
   const loading =
@@ -1085,7 +1194,20 @@ function Discovery() {
       </div>
 
       <div className="dc-card" style={{ padding: 14 }}>
-        <input className="dc-input" placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <input
+            className="dc-input"
+            placeholder="Search by name or code…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            style={{ flex: 1 }}
+          />
+          {q.trim() ? (
+            <button className="dc-btn" type="button" onClick={() => setQ('')} style={{ fontWeight: 950 }}>
+              Clear
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {loading ? (
@@ -1096,34 +1218,39 @@ function Discovery() {
         <div className="dc-card" style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>
           {error}
         </div>
+      ) : items.length === 0 ? (
+        <div className="dc-card" style={{ color: 'var(--dc-muted)', textAlign: 'center', padding: 36, fontWeight: 900 }}>
+          No results match.
+        </div>
       ) : (
         <div className="dc-list">
-          {items.slice(0, 60).map((m, idx) => {
+          {items.slice(0, 80).map((x, idx) => {
+            const m = x.m;
             const isCountries = tab === 'countries';
             const isSpecs = tab === 'specialities';
             const isProviders = tab === 'providers';
 
-            const title = isCountries
-              ? (m?.country_name || m?.name || 'Country')
-              : isSpecs
-                ? (m?.speciality_name || m?.name || 'Speciality')
-                : (m?.full_name || m?.name || 'Provider');
-            const sub = isCountries
-              ? (m?.country_code || m?.code || '').toString()
-              : isSpecs
-                ? ((m?.country || m?.country_id || '')?.toString() || '')
-                : `${(m?.email || '').toString()}${m?.status ? ` · ${m.status}` : ''}`;
+            const title = x.title || (isCountries ? 'Country' : isSpecs ? 'Speciality' : 'Provider');
+            const sub = x.sub || '';
+            const code = (x.code || '').toUpperCase().trim();
+            const providerBadge = isProviders ? (m?.status || '').toString().trim() : '';
 
             return (
-              <div className="dc-list-row" key={m?.id || `${tab}-${idx}`}>
+              <div className="dc-list-row" key={m?.id || `${tab}-${idx}`} role="button" tabIndex={0}>
                 <div className="dc-list-left">
-                  <div className="dc-avatar">{isCountries ? '🌐' : isSpecs ? '➕' : (title || 'P').toString().slice(0, 1).toUpperCase()}</div>
+                  <div className="dc-avatar">
+                    {isCountries ? '🌐' : isSpecs ? '➕' : (title || 'P').toString().slice(0, 1).toUpperCase()}
+                  </div>
                   <div className="dc-list-text">
                     <div className="dc-list-title">{title?.toString()}</div>
-                    <div className="dc-list-sub">{sub}</div>
+                    {sub ? <div className="dc-list-sub">{sub}</div> : null}
                   </div>
                 </div>
-                <div className="dc-chevron">›</div>
+                <div className="dc-list-right">
+                  {isCountries && code ? <div className="dc-pill">{code}</div> : null}
+                  {isProviders && providerBadge ? <div className="dc-pill">{providerBadge}</div> : null}
+                  <div className="dc-chevron">›</div>
+                </div>
               </div>
             );
           })}
