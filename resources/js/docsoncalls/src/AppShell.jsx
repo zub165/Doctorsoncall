@@ -2160,6 +2160,26 @@ function AdminHubLite() {
     try {
       await api.post(ApiPaths.registrationsApprove, { kind, id });
       window.location.reload();
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.response?.data?.detail || e?.message || 'Approve failed';
+      setCrud({ loading: false, error: msg.toString(), ok: '' });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reject(kind, id) {
+    const yes = window.confirm('Reject this registration?');
+    if (!yes) return;
+    setBusy(true);
+    setCrud({ loading: false, error: '', ok: '' });
+    try {
+      // Backend variations exist; we send an explicit action so Django can implement safely.
+      await api.post(ApiPaths.registrationsApprove, { kind, id, action: 'reject' });
+      window.location.reload();
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.response?.data?.detail || e?.message || 'Reject failed';
+      setCrud({ loading: false, error: msg.toString(), ok: '' });
     } finally {
       setBusy(false);
     }
@@ -2528,7 +2548,44 @@ function AdminHubLite() {
                     </div>
                   </div>
                 </div>
-                <div style={{ color: 'var(--dc-muted)', fontWeight: 900 }}>{(a?.approved || '').toString()}</div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <div style={{ color: 'var(--dc-muted)', fontWeight: 900 }}>{(a?.approved || a?.status || '').toString()}</div>
+                  <button
+                    className="dc-btn"
+                    type="button"
+                    disabled={crud.loading}
+                    onClick={() => {
+                      const id = a?.id;
+                      if (!id) return;
+                      const date = window.prompt('Date (YYYY-MM-DD)', (a?.date || '').toString());
+                      if (date == null) return;
+                      const time = window.prompt('Time (HH:MM)', (a?.time || '').toString());
+                      if (time == null) return;
+                      const status = window.prompt('Status / approved (optional)', (a?.status || a?.approved || '').toString());
+                      if (status == null) return;
+                      const patch = { date, time, status: status || null };
+                      doPatch(`${ApiPaths.storeAppointment}${encodeURIComponent(String(id))}/`, patch, 'Appointment');
+                    }}
+                    style={{ fontWeight: 950 }}
+                    title="Edit"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="dc-btn dc-btn-danger"
+                    type="button"
+                    disabled={crud.loading}
+                    onClick={() => {
+                      const id = a?.id;
+                      if (!id) return;
+                      doDelete(`${ApiPaths.storeAppointment}${encodeURIComponent(String(id))}/`, 'appointment');
+                    }}
+                    style={{ fontWeight: 950 }}
+                    title="Delete"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -2569,9 +2626,14 @@ function AdminHubLite() {
                   <div className="dc-list-sub">{(p.email || '').toString()}</div>
                 </div>
               </div>
-              <button className="dc-btn dc-btn-primary" onClick={() => approve('provider', p.id)} disabled={busy} style={{ fontWeight: 950 }}>
-                Approve
-              </button>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <button className="dc-btn dc-btn-primary" onClick={() => approve('provider', p.id)} disabled={busy} style={{ fontWeight: 950 }}>
+                  Approve
+                </button>
+                <button className="dc-btn dc-btn-danger" onClick={() => reject('provider', p.id)} disabled={busy} style={{ fontWeight: 950 }}>
+                  Reject
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -2600,9 +2662,14 @@ function AdminHubLite() {
                   <div className="dc-list-sub">{(p.email || '').toString()}</div>
                 </div>
               </div>
-              <button className="dc-btn dc-btn-primary" onClick={() => approve('patient', p.id)} disabled={busy} style={{ fontWeight: 950 }}>
-                Approve
-              </button>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                <button className="dc-btn dc-btn-primary" onClick={() => approve('patient', p.id)} disabled={busy} style={{ fontWeight: 950 }}>
+                  Approve
+                </button>
+                <button className="dc-btn dc-btn-danger" onClick={() => reject('patient', p.id)} disabled={busy} style={{ fontWeight: 950 }}>
+                  Reject
+                </button>
+              </div>
             </div>
           ))}
         </div>
