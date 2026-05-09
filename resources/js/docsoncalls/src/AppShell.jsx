@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { api, ApiPaths, tokenStore } from './api.js';
+import { api, ApiPaths, tokenStore, apiBaseUrl } from './api.js';
 import { Dashboard } from './screens/Dashboard.jsx';
 import { Hospitals } from './screens/Hospitals.jsx';
 import { Placeholder } from './screens/Placeholder.jsx';
@@ -711,13 +711,76 @@ function maintenancePlan(age) {
 function AiAssistant() {
   const [msg, setMsg] = React.useState('');
   const [busy, setBusy] = React.useState(false);
-  const [history, setHistory] = React.useState([
-    {
-      role: 'assistant',
-      text:
-        "Hi! I'm your AI medical assistant.\n\nI can help with basic symptoms and next steps, but I'm not a doctor.\nIf you have severe symptoms (trouble breathing, chest pain, fainting, severe bleeding, stroke signs), call emergency services immediately.",
-    },
-  ]);
+  const STORAGE_KEY = 'docsoncalls_ai_assistant_history_v1';
+  const WELCOME = {
+    role: 'assistant',
+    text:
+      "Hi! I'm your AI medical assistant.\n\nI can help with basic symptoms and next steps, but I'm not a doctor.\nIf you have severe symptoms (trouble breathing, chest pain, fainting, severe bleeding, stroke signs), call emergency services immediately.",
+  };
+  const [history, setHistory] = React.useState(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    } catch {}
+    return [WELCOME];
+  });
+  const [rec, setRec] = React.useState({ supported: true, listening: false, interim: '', error: '' });
+  const recRef = React.useRef(null);
+  const listRef = React.useRef(null);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(history.slice(-80)));
+    } catch {}
+    try {
+      listRef.current?.scrollTo?.({ top: listRef.current.scrollHeight, behavior: 'smooth' });
+    } catch {}
+  }, [history]);
+
+  React.useEffect(() => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      setRec((s) => ({ ...s, supported: false }));
+      return;
+    }
+    const r = new SR();
+    r.continuous = true;
+    r.interimResults = true;
+    r.lang = 'en-US';
+    r.onresult = (event) => {
+      let interim = '';
+      let finalText = '';
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const res = event.results[i];
+        const t = (res?.[0]?.transcript || '').toString();
+        if (!t) continue;
+        if (res.isFinal) finalText += t;
+        else interim += t;
+      }
+      if (interim) setRec((s) => ({ ...s, interim: interim.trim() }));
+      if (finalText.trim()) {
+        setMsg((prev) => {
+          const cur = (prev || '').trimEnd();
+          const sep = cur ? ' ' : '';
+          return `${cur}${sep}${finalText.trim()}`;
+        });
+        setRec((s) => ({ ...s, interim: '' }));
+      }
+    };
+    r.onerror = (e) => {
+      setRec((s) => ({ ...s, listening: false, error: (e?.error || 'Dictation error').toString() }));
+    };
+    r.onend = () => {
+      setRec((s) => ({ ...s, listening: false, interim: '' }));
+    };
+    recRef.current = r;
+    return () => {
+      try {
+        r.stop();
+      } catch {}
+    };
+  }, []);
 
   const quick = [
     'Headache',
@@ -732,13 +795,78 @@ function AiAssistant() {
     'Medication help',
   ];
 
+  function clearChat() {
+    setHistory([WELCOME]);
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {}
+  }
+
+  function triageInstantReply(text) {
+    const t = (text || '').toLowerCase();
+    const severe = [
+      'chest pain',
+      'shortness of breath',
+      'trouble breathing',
+      'difficulty breathing',
+      'stroke',
+      'face droop',
+      'slurred speech',
+      'weakness on one side',
+      'severe bleeding',
+      'uncontrolled bleeding',
+      'fainting',
+      'passed out',
+      'seizure',
+      'blue lips',
+      'severe allergic',
+      'anaphylaxis',
+      'suicidal',
+      'overdose',
+    ];
+    const hit = severe.some((k) => t.includes(k));
+    if (!hit) return null;
+    return (
+      "This could be serious.\n\n" +
+      "- If you have trouble breathing, chest pain/pressure, signs of stroke, uncontrolled bleeding, seizure, or fainting: call emergency services now.\n" +
+      "- If symptoms are severe or rapidly worsening: go to the nearest ER.\n\n" +
+      "If you want, tell me: your age, main symptom, when it started, and any medical history/medications—I'll help you decide next safest steps."
+    );
+  }
+
+  function toggleDictation() {
+    if (!rec.supported) return;
+    const r = recRef.current;
+    if (!r) return;
+    if (rec.listening) {
+      try {
+        r.stop();
+      } catch {}
+      setRec((s) => ({ ...s, listening: false, interim: '' }));
+      return;
+    }
+    setRec((s) => ({ ...s, error: '' }));
+    try {
+      r.start();
+      setRec((s) => ({ ...s, listening: true }));
+    } catch (e) {
+      setRec((s) => ({ ...s, listening: false, error: (e?.message || 'Could not start dictation').toString() }));
+    }
+  }
+
   async function send() {
     const t = msg.trim();
     if (!t || busy) return;
     setBusy(true);
+    setRec((s) => ({ ...s, error: '' }));
     setHistory((h) => [...h, { role: 'user', text: t }]);
     setMsg('');
     try {
+      const instant = triageInstantReply(t);
+      if (instant) {
+        setHistory((h) => [...h, { role: 'assistant', text: instant }]);
+      }
+
       const { data } = await api.post(ApiPaths.medicalRecordsAiAssist, { query: t });
       const reply =
         (data && (data.message || data.detail || data.answer || data.response)) ||
@@ -746,13 +874,22 @@ function AiAssistant() {
         JSON.stringify(data, null, 2);
       setHistory((h) => [...h, { role: 'assistant', text: reply.toString() }]);
     } catch (err) {
+      const code = err?.response?.status;
       const serverMsg =
         err?.response?.data?.message ||
         err?.response?.data?.detail ||
         (typeof err?.response?.data === 'string' ? err.response.data : '') ||
         err?.message ||
         'AI request failed.';
-      setHistory((h) => [...h, { role: 'assistant', text: `Error: ${serverMsg}` }]);
+      const hint =
+        code === 404
+          ? 'Backend AI endpoint is missing (404). Deploy `/api/medical-records/ai-assist/` on your server or point the web app to the correct API base.'
+          : code === 401
+            ? 'Please sign in again.'
+            : code === 403
+              ? 'Your account role cannot access this action.'
+              : '';
+      setHistory((h) => [...h, { role: 'assistant', text: `Error: ${serverMsg}${hint ? `\n\n${hint}` : ''}` }]);
     } finally {
       setBusy(false);
     }
@@ -779,20 +916,48 @@ function AiAssistant() {
             {t}
           </button>
         ))}
+        <button type="button" className="dc-chip" onClick={clearChat} style={{ marginLeft: 'auto' }}>
+          Clear chat
+        </button>
       </div>
 
       <div className="dc-card" style={{ padding: 16 }}>
-        <div className="dc-row" style={{ gap: 10 }}>
-          {history.slice(-6).map((m, idx) => (
-            <div key={idx} style={{ padding: 12, borderRadius: 14, background: m.role === 'user' ? 'rgba(211,47,47,0.08)' : '#f3f4f6' }}>
-              <div style={{ whiteSpace: 'pre-wrap', fontWeight: 800, color: m.role === 'user' ? 'var(--dc-primary-dark)' : 'var(--dc-text)' }}>
+        <div
+          ref={listRef}
+          style={{
+            display: 'grid',
+            gap: 10,
+            maxHeight: 320,
+            overflow: 'auto',
+            paddingRight: 4,
+          }}
+        >
+          {history.slice(-40).map((m, idx) => (
+            <div
+              key={idx}
+              style={{
+                padding: 12,
+                borderRadius: 14,
+                background: m.role === 'user' ? 'rgba(211,47,47,0.08)' : '#f3f4f6',
+                border: m.role === 'assistant' && (m.text || '').startsWith('This could be serious')
+                  ? '1px solid rgba(245, 158, 11, 0.35)'
+                  : '1px solid rgba(229,231,235,0.9)',
+              }}
+            >
+              <div
+                style={{
+                  whiteSpace: 'pre-wrap',
+                  fontWeight: 800,
+                  color: m.role === 'user' ? 'var(--dc-primary-dark)' : 'var(--dc-text)',
+                }}
+              >
                 {m.text}
               </div>
             </div>
           ))}
         </div>
 
-        <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+        <div style={{ display: 'flex', gap: 10, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <input
             className="dc-input"
             placeholder="Send a message"
@@ -801,10 +966,25 @@ function AiAssistant() {
             onKeyDown={(e) => (e.key === 'Enter' ? send() : null)}
             disabled={busy}
           />
+          <button
+            className="dc-btn"
+            type="button"
+            onClick={toggleDictation}
+            disabled={!rec.supported || busy}
+            style={{ fontWeight: 950 }}
+            title={rec.supported ? 'Voice dictation' : 'Dictation not supported in this browser'}
+          >
+            {rec.listening ? '🎙️ Stop' : '🎙️'}
+          </button>
           <button className="dc-btn dc-btn-primary" type="button" onClick={send} disabled={busy} style={{ fontWeight: 950 }}>
             {busy ? '…' : '▶'}
           </button>
         </div>
+        {rec.listening || rec.interim || rec.error ? (
+          <div style={{ marginTop: 10, color: 'var(--dc-muted)', fontWeight: 850 }}>
+            {rec.error ? rec.error : rec.listening ? (rec.interim ? `Listening… ${rec.interim}` : 'Listening…') : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -1906,6 +2086,74 @@ function AdminHubLite() {
   const [tab, setTab] = React.useState('approvals'); // approvals | roles | plans | specialities | countries | providers | patients | appointments
   const s = useApiCall(() => api.get(ApiPaths.registrationsPending).then((r) => r.data), []);
   const [busy, setBusy] = React.useState(false);
+  const [crud, setCrud] = React.useState({ loading: false, error: '', ok: '' });
+
+  function renderApiError(errText, endpointPath) {
+    const t = (errText || '').toString();
+    const is404 = t.includes('status code 404') || t.toLowerCase().includes('not found');
+    const is401 = t.includes('status code 401') || t.toLowerCase().includes('unauthorized');
+    const is403 = t.includes('status code 403') || t.toLowerCase().includes('forbidden');
+    const hint = is404
+      ? 'This tab is calling an API endpoint that is not deployed on the current backend.'
+      : is401
+        ? 'You are signed out (token missing/expired).'
+        : is403
+          ? 'Your account does not have permission for this endpoint.'
+          : 'The backend returned an error for this endpoint.';
+
+    return (
+      <div className="dc-card" style={{ padding: 16 }}>
+        <div style={{ fontWeight: 950, color: 'var(--dc-danger)' }}>Request failed</div>
+        <div style={{ marginTop: 8, fontWeight: 900 }}>{t}</div>
+        <div style={{ marginTop: 10, color: 'var(--dc-muted)', fontWeight: 850 }}>{hint}</div>
+        <div style={{ marginTop: 10, fontSize: 13, fontWeight: 900, color: 'rgba(17,24,39,0.85)' }}>
+          Endpoint: <span style={{ fontWeight: 950 }}>{endpointPath}</span>
+        </div>
+        <div style={{ marginTop: 6, fontSize: 13, fontWeight: 900, color: 'rgba(17,24,39,0.85)' }}>
+          API base: <span style={{ fontWeight: 950 }}>{apiBaseUrl}</span>
+        </div>
+        <div style={{ display: 'flex', gap: 12, marginTop: 12, flexWrap: 'wrap' }}>
+          <button className="dc-btn" type="button" onClick={() => window.location.reload()} style={{ fontWeight: 950 }}>
+            Retry
+          </button>
+          <button className="dc-btn dc-btn-primary" type="button" onClick={() => (window.location.href = '/shell/12')} style={{ fontWeight: 950 }}>
+            Open Settings
+          </button>
+        </div>
+        {is404 ? (
+          <div style={{ marginTop: 12, color: 'var(--dc-muted)', fontWeight: 850, fontSize: 13 }}>
+            Fix: point the web app to the correct Django EMR API (set <code>VITE_EMR_API_BASE_URL</code>) or deploy the missing route on the server.
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  async function doPatch(path, patch, label) {
+    setCrud({ loading: true, error: '', ok: '' });
+    try {
+      await api.patch(path, patch);
+      setCrud({ loading: false, error: '', ok: `${label} updated` });
+      window.location.reload();
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.response?.data?.detail || e?.message || 'Update failed';
+      setCrud({ loading: false, error: msg.toString(), ok: '' });
+    }
+  }
+
+  async function doDelete(path, label) {
+    const yes = window.confirm(`Delete ${label}? This cannot be undone.`);
+    if (!yes) return;
+    setCrud({ loading: true, error: '', ok: '' });
+    try {
+      await api.delete(path);
+      setCrud({ loading: false, error: '', ok: `${label} deleted` });
+      window.location.reload();
+    } catch (e) {
+      const msg = e?.response?.data?.message || e?.response?.data?.detail || e?.message || 'Delete failed';
+      setCrud({ loading: false, error: msg.toString(), ok: '' });
+    }
+  }
 
   async function approve(kind, id) {
     setBusy(true);
@@ -1999,15 +2247,24 @@ function AdminHubLite() {
         </div>
       ) : null}
 
+      {crud.error ? (
+        <div className="dc-card" style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>
+          {crud.error}
+        </div>
+      ) : null}
+      {crud.ok ? (
+        <div className="dc-card" style={{ color: 'var(--dc-primary)', fontWeight: 950 }}>
+          {crud.ok}
+        </div>
+      ) : null}
+
       {tab === 'roles' ? (
         roles.loading ? (
           <div className="dc-card" style={{ color: 'var(--dc-muted)' }}>
             Loading…
           </div>
         ) : roles.error ? (
-          <div className="dc-card" style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>
-            {roles.error}
-          </div>
+          renderApiError(roles.error, `${apiBaseUrl}${ApiPaths.roles}`)
         ) : (
           <div className="dc-list">
             {unwrapList(roles.data).slice(0, 200).map((r, idx) => (
@@ -2019,7 +2276,41 @@ function AdminHubLite() {
                     <div className="dc-list-sub">{(r?.description || r?.status || '').toString()}</div>
                   </div>
                 </div>
-                <div style={{ color: 'var(--dc-muted)', fontWeight: 900 }}>{(r?.status || '').toString()}</div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <div style={{ color: 'var(--dc-muted)', fontWeight: 900 }}>{(r?.status || '').toString()}</div>
+                  <button
+                    className="dc-btn"
+                    type="button"
+                    disabled={crud.loading}
+                    onClick={() => {
+                      const id = r?.id;
+                      if (!id) return;
+                      const name = window.prompt('Role name', (r?.name || '').toString());
+                      if (name == null) return;
+                      const status = window.prompt('Status (optional)', (r?.status || '').toString());
+                      if (status == null) return;
+                      doPatch(`${ApiPaths.roles}${encodeURIComponent(String(id))}/`, { name, status }, 'Role');
+                    }}
+                    style={{ fontWeight: 950 }}
+                    title="Edit"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="dc-btn dc-btn-danger"
+                    type="button"
+                    disabled={crud.loading}
+                    onClick={() => {
+                      const id = r?.id;
+                      if (!id) return;
+                      doDelete(`${ApiPaths.roles}${encodeURIComponent(String(id))}/`, 'role');
+                    }}
+                    style={{ fontWeight: 950 }}
+                    title="Delete"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -2032,9 +2323,7 @@ function AdminHubLite() {
             Loading…
           </div>
         ) : plans.error ? (
-          <div className="dc-card" style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>
-            {plans.error}
-          </div>
+          renderApiError(plans.error, `${apiBaseUrl}${ApiPaths.plans}`)
         ) : (
           <div className="dc-list">
             {unwrapList(plans.data).slice(0, 200).map((p, idx) => (
@@ -2048,7 +2337,49 @@ function AdminHubLite() {
                     </div>
                   </div>
                 </div>
-                <div style={{ color: 'var(--dc-muted)', fontWeight: 900 }}>{(p?.ai_bot || '').toString()}</div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <div style={{ color: 'var(--dc-muted)', fontWeight: 900 }}>{(p?.ai_bot || '').toString()}</div>
+                  <button
+                    className="dc-btn"
+                    type="button"
+                    disabled={crud.loading}
+                    onClick={() => {
+                      const id = p?.id;
+                      if (!id) return;
+                      const plan_name = window.prompt('Plan name', (p?.plan_name || '').toString());
+                      if (plan_name == null) return;
+                      const price = window.prompt('Price', (p?.price || '').toString());
+                      if (price == null) return;
+                      const duration = window.prompt('Duration', (p?.duration || '').toString());
+                      if (duration == null) return;
+                      const number_appointments = window.prompt('Number appointments', (p?.number_appointments || '').toString());
+                      if (number_appointments == null) return;
+                      const ai_bot = window.prompt('AI bot (yes/no)', (p?.ai_bot || '').toString());
+                      if (ai_bot == null) return;
+                      doPatch(
+                        `${ApiPaths.plans}${encodeURIComponent(String(id))}/`,
+                        { plan_name, price, duration, number_appointments, ai_bot },
+                        'Plan',
+                      );
+                    }}
+                    style={{ fontWeight: 950 }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="dc-btn dc-btn-danger"
+                    type="button"
+                    disabled={crud.loading}
+                    onClick={() => {
+                      const id = p?.id;
+                      if (!id) return;
+                      doDelete(`${ApiPaths.plans}${encodeURIComponent(String(id))}/`, 'plan');
+                    }}
+                    style={{ fontWeight: 950 }}
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -2061,9 +2392,7 @@ function AdminHubLite() {
             Loading…
           </div>
         ) : countries.error ? (
-          <div className="dc-card" style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>
-            {countries.error}
-          </div>
+          renderApiError(countries.error, `${apiBaseUrl}${ApiPaths.countries}`)
         ) : (
           <div className="dc-list">
             {unwrapList(countries.data).slice(0, 200).map((c, idx) => (
@@ -2074,6 +2403,42 @@ function AdminHubLite() {
                     <div className="dc-list-title">{(c?.country_name || 'Country').toString()}</div>
                     <div className="dc-list-sub">{(c?.country_code || '').toString()}</div>
                   </div>
+                </div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <button
+                    className="dc-btn"
+                    type="button"
+                    disabled={crud.loading}
+                    onClick={() => {
+                      const id = c?.id;
+                      if (!id) return;
+                      const country_name = window.prompt('Country name', (c?.country_name || '').toString());
+                      if (country_name == null) return;
+                      const country_code = window.prompt('Country code', (c?.country_code || '').toString());
+                      if (country_code == null) return;
+                      doPatch(
+                        `${ApiPaths.countries}${encodeURIComponent(String(id))}/`,
+                        { country_name, country_code },
+                        'Country',
+                      );
+                    }}
+                    style={{ fontWeight: 950 }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="dc-btn dc-btn-danger"
+                    type="button"
+                    disabled={crud.loading}
+                    onClick={() => {
+                      const id = c?.id;
+                      if (!id) return;
+                      doDelete(`${ApiPaths.countries}${encodeURIComponent(String(id))}/`, 'country');
+                    }}
+                    style={{ fontWeight: 950 }}
+                  >
+                    Delete
+                  </button>
                 </div>
               </div>
             ))}
@@ -2087,9 +2452,7 @@ function AdminHubLite() {
             Loading…
           </div>
         ) : specialities.error ? (
-          <div className="dc-card" style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>
-            {specialities.error}
-          </div>
+          renderApiError(specialities.error, `${apiBaseUrl}${ApiPaths.specialities}`)
         ) : (
           <div className="dc-list">
             {unwrapList(specialities.data).slice(0, 200).map((sp, idx) => (
@@ -2100,6 +2463,42 @@ function AdminHubLite() {
                     <div className="dc-list-title">{(sp?.speciality_name || 'Speciality').toString()}</div>
                     <div className="dc-list-sub">{(sp?.country_id || sp?.country || '').toString()}</div>
                   </div>
+                </div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <button
+                    className="dc-btn"
+                    type="button"
+                    disabled={crud.loading}
+                    onClick={() => {
+                      const id = sp?.id;
+                      if (!id) return;
+                      const speciality_name = window.prompt('Speciality name', (sp?.speciality_name || '').toString());
+                      if (speciality_name == null) return;
+                      const country_id = window.prompt('Country ID (optional)', (sp?.country_id || sp?.country || '').toString());
+                      if (country_id == null) return;
+                      doPatch(
+                        `${ApiPaths.specialities}${encodeURIComponent(String(id))}/`,
+                        { speciality_name, country_id: country_id || null },
+                        'Speciality',
+                      );
+                    }}
+                    style={{ fontWeight: 950 }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="dc-btn dc-btn-danger"
+                    type="button"
+                    disabled={crud.loading}
+                    onClick={() => {
+                      const id = sp?.id;
+                      if (!id) return;
+                      doDelete(`${ApiPaths.specialities}${encodeURIComponent(String(id))}/`, 'speciality');
+                    }}
+                    style={{ fontWeight: 950 }}
+                  >
+                    Delete
+                  </button>
                 </div>
               </div>
             ))}
@@ -2113,9 +2512,7 @@ function AdminHubLite() {
             Loading…
           </div>
         ) : allAppts.error ? (
-          <div className="dc-card" style={{ color: 'var(--dc-danger)', fontWeight: 900 }}>
-            {allAppts.error}
-          </div>
+          renderApiError(allAppts.error, `${apiBaseUrl}${ApiPaths.allAppointments}`)
         ) : (
           <div className="dc-list">
             {unwrapList(allAppts.data).slice(0, 200).map((a, idx) => (

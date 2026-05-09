@@ -22,8 +22,14 @@ export function Hospitals() {
 
       // Prefer nearby search when we have coordinates.
       if (Number.isFinite(Number(lat)) && Number.isFinite(Number(lon))) {
-        const res = await emrApi.get(ApiPaths.hospitalsSearch, { params: { lat, lon } });
-        data = res.data;
+        try {
+          const res = await emrApi.get(ApiPaths.hospitalsSearch, { params: { lat, lon } });
+          data = res.data;
+        } catch (e) {
+          // Some deployments don't support geo search yet (or error). Fallback to list.
+          const res2 = await emrApi.get(ApiPaths.hospitals);
+          data = res2.data;
+        }
       } else {
         try {
           const res = await mapsApi.get(ApiPaths.hospitals);
