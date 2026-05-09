@@ -55,10 +55,12 @@ class _SessionGateState extends State<_SessionGate> {
       final token = await repo.readToken();
       final client = EmergencyApiClient(tokenRepository: repo);
       String? role;
+
+      // Keep a single OfflineDb instance for the whole session (even before sign-in).
+      final mkDb = widget.offlineDbFactory ?? () => OfflineDb();
+      _offlineDb ??= mkDb();
+
       if (token != null && token.isNotEmpty) {
-        // Keep a single OfflineDb instance for the whole session.
-        final mkDb = widget.offlineDbFactory ?? () => OfflineDb();
-        _offlineDb ??= mkDb();
         try {
           final me = await UserApi(client).fetchDoctorOnCallMe();
           role = (me['role'] ?? me['portal'] ?? me['user_role'])
@@ -142,7 +144,7 @@ class _SessionGateState extends State<_SessionGate> {
             role: role,
           );
         }
-        return LoginScreen(apiClientOverride: data.client);
+        return LoginScreen(apiClientOverride: data.client, offlineDb: _offlineDb!);
       },
     );
   }

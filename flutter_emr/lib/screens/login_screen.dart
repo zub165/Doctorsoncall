@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/login_portal.dart';
 import '../services/auth_api.dart';
 import '../services/emergency_api_client.dart';
+import '../services/offline_db.dart';
 import '../services/token_repository.dart';
 import '../theme/app_theme.dart';
 import '../services/user_api.dart';
@@ -12,10 +13,11 @@ import 'forgot_password_screen.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key, this.apiClientOverride});
+  const LoginScreen({super.key, this.apiClientOverride, this.offlineDb});
 
   /// Optional shared [EmergencyApiClient] (e.g. from session bootstrap).
   final EmergencyApiClient? apiClientOverride;
+  final OfflineDb? offlineDb;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -24,6 +26,8 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   late final EmergencyApiClient _client;
   late final AuthApi _auth;
+  late final OfflineDb _db;
+  late final bool _ownDb;
 
   final _email = TextEditingController();
   final _password = TextEditingController();
@@ -44,12 +48,17 @@ class _LoginScreenState extends State<LoginScreen> {
         widget.apiClientOverride ??
         EmergencyApiClient(tokenRepository: TokenRepository());
     _auth = AuthApi(_client);
+    _db = widget.offlineDb ?? OfflineDb();
+    _ownDb = widget.offlineDb == null;
   }
 
   @override
   void dispose() {
     _email.dispose();
     _password.dispose();
+    if (_ownDb) {
+      _db.close();
+    }
     super.dispose();
   }
 
@@ -81,7 +90,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(
-          builder: (_) => AppShell(apiClient: _client, role: role),
+          builder: (_) => AppShell(apiClient: _client, offlineDb: _db, role: role),
         ),
       );
     } on DioException catch (e) {
@@ -275,7 +284,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                       Navigator.of(context).pushReplacement(
                                         MaterialPageRoute<void>(
                                           builder: (_) =>
-                                              AppShell(apiClient: _client),
+                                              AppShell(apiClient: _client, offlineDb: _db),
                                         ),
                                       );
                                     },
@@ -327,6 +336,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                         MaterialPageRoute<void>(
                                           builder: (_) => RegisterScreen(
                                             apiClient: _client,
+                                            offlineDb: _db,
                                             initialPortal:
                                                 _portal == LoginPortal.doctor
                                                     ? LoginPortal.doctor

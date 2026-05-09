@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/login_portal.dart';
 import '../services/auth_api.dart';
 import '../services/emergency_api_client.dart';
+import '../services/offline_db.dart';
 import '../theme/app_theme.dart';
 import 'app_shell.dart';
 
@@ -11,10 +12,12 @@ class RegisterScreen extends StatefulWidget {
   const RegisterScreen({
     super.key,
     required this.apiClient,
+    this.offlineDb,
     this.initialPortal = LoginPortal.patient,
   });
 
   final EmergencyApiClient apiClient;
+  final OfflineDb? offlineDb;
   final LoginPortal initialPortal;
 
   @override
@@ -23,6 +26,8 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> {
   late final AuthApi _auth;
+  late final OfflineDb _db;
+  late final bool _ownDb;
 
   final _name = TextEditingController();
   final _email = TextEditingController();
@@ -37,6 +42,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void initState() {
     super.initState();
     _auth = AuthApi(widget.apiClient);
+    _db = widget.offlineDb ?? OfflineDb();
+    _ownDb = widget.offlineDb == null;
     _registrationPortal = widget.initialPortal == LoginPortal.administrator
         ? LoginPortal.patient
         : widget.initialPortal;
@@ -48,6 +55,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _email.dispose();
     _password.dispose();
     _confirm.dispose();
+    if (_ownDb) {
+      _db.close();
+    }
     super.dispose();
   }
 
@@ -73,7 +83,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute<void>(
-          builder: (_) => AppShell(apiClient: widget.apiClient),
+          builder: (_) => AppShell(apiClient: widget.apiClient, offlineDb: _db),
         ),
         (route) => false,
       );
