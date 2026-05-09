@@ -21,6 +21,7 @@ from .models import (
     PatientDocument,
     PatientShare,
     PatientSubscription,
+    PatientVital,
 )
 
 
@@ -244,6 +245,27 @@ class PatientShareSerializer(serializers.ModelSerializer):
             "created_at",
             "provider",
             "patient",
+        )
+
+
+class PatientVitalSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PatientVital
+        fields = (
+            "id",
+            "patient_id",
+            "recorded_by_id",
+            "height_cm",
+            "weight_kg",
+            "temperature_c",
+            "bp_sys",
+            "bp_dia",
+            "pulse_bpm",
+            "resp_min",
+            "spo2",
+            "glucose_mgdl",
+            "notes",
+            "created_at",
         )
 
 

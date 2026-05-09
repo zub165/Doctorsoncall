@@ -1,10 +1,13 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../services/emergency_api_client.dart';
 import '../services/medical_records_api.dart';
+import '../services/offline_db.dart';
 import '../theme/app_theme.dart';
 
 class AiAssistantScreen extends StatefulWidget {
@@ -17,22 +20,144 @@ class AiAssistantScreen extends StatefulWidget {
 }
 
 class _AiAssistantScreenState extends State<AiAssistantScreen> {
+  static List<_Msg> _welcomeMessages() => [
+        _Msg.bot(
+          "Hi! I'm your AI medical assistant.\n\n"
+          "I can help with basic symptoms and next steps, but I'm not a doctor.\n"
+          "If you have severe symptoms (trouble breathing, chest pain, fainting, "
+          "severe bleeding, stroke signs), call emergency services immediately.",
+        ),
+      ];
+
   final _input = TextEditingController();
-  final List<_Msg> _msgs = [
-    _Msg.bot(
-      "Hi! I'm your AI medical assistant.\n\n"
-      "I can help with basic symptoms and next steps, but I’m not a doctor.\n"
-      "If you have severe symptoms (trouble breathing, chest pain, fainting, "
-      "severe bleeding, stroke signs), call emergency services immediately.",
-    ),
-  ];
+  final List<_Msg> _msgs = _welcomeMessages();
 
   bool _sending = false;
+  late final OfflineDb _db = OfflineDb();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _hydrateFromDb());
+  }
+
+  /// Reload chat from Drift so returning to this tab is instant after first use.
+  Future<void> _hydrateFromDb() async {
+    try {
+      final rows = await _db.aiAssistantMessagesOrdered();
+      if (!mounted || rows.isEmpty) return;
+      setState(() {
+        _msgs
+          ..clear()
+          ..addAll(
+            rows.map(
+              (r) => r.isUser ? _Msg.user(r.body) : _Msg.bot(r.body),
+            ),
+          );
+      });
+    } catch (_) {
+      // offline DB unavailable — keep default welcome
+    }
+  }
+
+  Future<void> _persistBubble({required bool isUser, required String body}) async {
+    try {
+      await _db.appendAiAssistantMessage(isUser: isUser, body: body);
+    } catch (_) {}
+  }
+
+  Future<void> _clearChat() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear chat?'),
+        content: const Text(
+          'This removes the conversation from this device.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await _db.clearAiAssistantMessages();
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {
+      _msgs
+        ..clear()
+        ..addAll(_welcomeMessages());
+      _sending = false;
+    });
+  }
 
   @override
   void dispose() {
     _input.dispose();
     super.dispose();
+  }
+
+  /// Immediate safety copy for high‑acuity keywords (no network wait).
+  String? _instantTriageReply(String t) {
+    final q = t.toLowerCase();
+
+    if (q.contains('chest pain') || q.contains('tightness')) {
+      return _urgent(
+        'Chest pain can be serious.',
+        'If it is severe, with shortness of breath, sweating, nausea, or radiating to arm/jaw, seek emergency care now.',
+      );
+    }
+    if (q.contains('breath') ||
+        q.contains('shortness') ||
+        q.contains('breathing')) {
+      return _urgent(
+        'Breathing difficulty needs urgent attention.',
+        'If you are struggling to breathe, lips are blue, or symptoms are worsening quickly, seek emergency care now.',
+      );
+    }
+    if (q.contains('bleed') || q.contains('blood')) {
+      return _urgent(
+        'Bleeding',
+        "Apply firm pressure with clean cloth. If bleeding is heavy, doesn't stop, or you feel faint, seek emergency care now.",
+      );
+    }
+    if (q.contains('stroke') ||
+        q.contains('facial droop') ||
+        q.contains('slurred speech') ||
+        q.contains('one-sided weakness')) {
+      return _urgent(
+        'Possible stroke symptoms',
+        'Sudden weakness, face droop, speech trouble, or severe headache needs emergency evaluation now.',
+      );
+    }
+    return null;
+  }
+
+  /// Optional second message after instant triage — backend may take several seconds.
+  Future<void> _enrichFromBackend(String originalQuery) async {
+    try {
+      final res =
+          await MedicalRecordsApi(widget.apiClient).aiAssist(query: originalQuery);
+      final reply = (res['answer'] ?? res['response'] ?? res['text'] ?? '')
+          .toString()
+          .trim();
+      if (reply.isEmpty || !mounted) return;
+      final block = 'Additional guidance\n\n$reply';
+      setState(() {
+        _msgs.add(_Msg.bot(block));
+      });
+      await _persistBubble(isUser: false, body: block);
+    } catch (_) {
+      // Offline / timeout — instant message already shown
+    }
   }
 
   Future<void> _send(String text) async {
@@ -43,13 +168,25 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
       _msgs.add(_Msg.user(t));
     });
     _input.clear();
+    await _persistBubble(isUser: true, body: t);
 
-    // First, try the backend AI (medical-records/ai-assist). If unavailable,
-    // fall back to safe, rule-based guidance.
+    final instant = _instantTriageReply(t);
+    if (instant != null) {
+      if (!mounted) return;
+      setState(() {
+        _msgs.add(_Msg.bot(instant));
+        _sending = false;
+      });
+      await _persistBubble(isUser: false, body: instant);
+      unawaited(_enrichFromBackend(t));
+      return;
+    }
+
     String reply;
     try {
       final res = await MedicalRecordsApi(widget.apiClient).aiAssist(query: t);
-      reply = (res['answer'] ?? res['response'] ?? res['text'] ?? '').toString().trim();
+      reply =
+          (res['answer'] ?? res['response'] ?? res['text'] ?? '').toString().trim();
       if (reply.isEmpty) {
         reply = _fallback(t);
       }
@@ -62,6 +199,7 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
       _msgs.add(_Msg.bot(reply));
       _sending = false;
     });
+    await _persistBubble(isUser: false, body: reply);
   }
 
   String _fallback(String t) {
@@ -95,7 +233,7 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
         [
           'Hydrate, rest in a dark room, and avoid screens if sensitive.',
           'Consider a simple pain reliever if safe for you.',
-          'Seek urgent care if it’s “worst headache,” sudden onset, with weakness/numbness, confusion, fever + neck stiffness, or head injury.',
+          'Seek urgent care if it\'s "worst headache," sudden onset, with weakness/numbness, confusion, fever + neck stiffness, or head injury.',
         ],
       );
     }
@@ -105,14 +243,14 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
         [
           'Sip small amounts of water or oral rehydration solution.',
           'Try small bland foods when tolerated.',
-          'Seek care if you can’t keep fluids down, have severe abdominal pain, blood in vomit/stool, or signs of dehydration.',
+          "Seek care if you can't keep fluids down, have severe abdominal pain, blood in vomit/stool, or signs of dehydration.",
         ],
       );
     }
     if (q.contains('bleed') || q.contains('blood')) {
       return _urgent(
         'Bleeding',
-        'Apply firm pressure with clean cloth. If bleeding is heavy, doesn’t stop, or you feel faint, seek emergency care now.',
+        "Apply firm pressure with clean cloth. If bleeding is heavy, doesn't stop, or you feel faint, seek emergency care now.",
       );
     }
 
@@ -165,6 +303,12 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
                       ),
                 ),
               ),
+              IconButton(
+                tooltip: 'Clear chat',
+                onPressed: _sending ? null : _clearChat,
+                icon: const Icon(Icons.delete_outline),
+                color: AppColors.primary,
+              ),
             ],
           ),
         ),
@@ -175,7 +319,7 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
             itemBuilder: (context, i) {
               if (i == 0) {
                 return _QuickChips(
-                  onPick: (t) => _send(t),
+                  onPick: (tx) => _send(tx),
                 );
               }
               final m = _msgs[i - 1];
@@ -304,14 +448,80 @@ class _DoctorSoapNoteScreenState extends State<DoctorSoapNoteScreen> {
   final _plan = TextEditingController();
   bool _busy = false;
 
+  final stt.SpeechToText _stt = stt.SpeechToText();
+  bool _listening = false;
+  String _lastPartial = '';
+
   @override
   void dispose() {
+    _stt.stop();
     _dictation.dispose();
     _subjective.dispose();
     _objective.dispose();
     _assessment.dispose();
     _plan.dispose();
     super.dispose();
+  }
+
+  Future<void> _toggleDictation() async {
+    if (_listening) {
+      await _stt.stop();
+      if (!mounted) return;
+      setState(() {
+        _listening = false;
+        _lastPartial = '';
+      });
+      return;
+    }
+
+    final ok = await _stt.initialize(
+      onError: (_) {
+        if (!mounted) return;
+        setState(() => _listening = false);
+      },
+      onStatus: (s) {
+        // Some platforms report "done"/"notListening" after a pause.
+        if (!mounted) return;
+        if (s == 'done' || s == 'notListening') {
+          setState(() {
+            _listening = false;
+            _lastPartial = '';
+          });
+        }
+      },
+    );
+    if (!ok) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Dictation unavailable on this device.')),
+      );
+      return;
+    }
+
+    setState(() => _listening = true);
+    _stt.listen(
+      listenOptions: stt.SpeechListenOptions(
+        listenMode: stt.ListenMode.dictation,
+        partialResults: true,
+      ),
+      onResult: (r) {
+        final words = r.recognizedWords.trim();
+        if (words.isEmpty) return;
+
+        // Avoid re-appending the same partial over and over.
+        if (!r.finalResult) {
+          _lastPartial = words;
+          return;
+        }
+
+        final current = _dictation.text.trimRight();
+        final sep = current.isEmpty ? '' : '\n';
+        _dictation.text = '$current$sep$words';
+        _dictation.selection = TextSelection.collapsed(offset: _dictation.text.length);
+        _lastPartial = '';
+        if (mounted) setState(() {});
+      },
+    );
   }
 
   Future<void> _aiAssist() async {
@@ -415,7 +625,9 @@ $text
       final end = i + 1 < keys.length ? keys[i + 1] : text.length;
       final section = text.substring(start, end).trim();
       final name = points[start]!;
-      out[name] = section.replaceFirst(RegExp('^$name\\s*[:\\-]*', caseSensitive: false), '').trim();
+      out[name] = section
+          .replaceFirst(RegExp('^$name\\s*[:\\-]*', caseSensitive: false), '')
+          .trim();
     }
     return out;
   }
@@ -461,15 +673,54 @@ $text
               ),
         ),
         const SizedBox(height: 12),
-        TextField(
-          controller: _dictation,
-          minLines: 3,
-          maxLines: 6,
-          decoration: const InputDecoration(
-            labelText: 'Dictation / free text',
-            hintText: 'Paste or type the visit notes here…',
-          ),
+        Stack(
+          children: [
+            TextField(
+              controller: _dictation,
+              minLines: 3,
+              maxLines: 6,
+              decoration: const InputDecoration(
+                labelText: 'Dictation / free text',
+                hintText: 'Paste, type, or dictate the visit notes here…',
+              ),
+            ),
+            Positioned(
+              right: 6,
+              top: 6,
+              child: IconButton(
+                tooltip: _listening ? 'Stop dictation' : 'Start dictation',
+                onPressed: _busy ? null : _toggleDictation,
+                icon: Icon(
+                  _listening ? Icons.mic_off_rounded : Icons.mic_rounded,
+                  color: _listening ? Colors.red : AppColors.primary,
+                ),
+              ),
+            ),
+          ],
         ),
+        if (_listening || _lastPartial.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Icon(_listening ? Icons.hearing_rounded : Icons.hearing_disabled_rounded,
+                  size: 16, color: _listening ? Colors.red : Colors.grey),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  _listening
+                      ? (_lastPartial.isEmpty ? 'Listening…' : _lastPartial)
+                      : _lastPartial,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.grey.shade700,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+            ],
+          ),
+        ],
         const SizedBox(height: 12),
         Row(
           children: [
@@ -515,4 +766,3 @@ $text
     );
   }
 }
-

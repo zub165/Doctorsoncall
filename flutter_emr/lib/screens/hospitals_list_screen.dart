@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../models/hospital.dart';
@@ -414,10 +415,20 @@ Widget _choiceChip({
 }
 
 /// OpenStreetMap tiles + pins using lat/lng from [CatalogApi.loadHospitalsList].
-class _HospitalMapPreview extends StatelessWidget {
+/// Also shows device location (if permission granted).
+class _HospitalMapPreview extends StatefulWidget {
   const _HospitalMapPreview({required this.hospitals});
 
   final List<Hospital> hospitals;
+
+  @override
+  State<_HospitalMapPreview> createState() => _HospitalMapPreviewState();
+}
+
+class _HospitalMapPreviewState extends State<_HospitalMapPreview> {
+  final MapController _mapController = MapController();
+  LatLng? _userLocation;
+  bool _locAttempted = false;
 
   static List<Hospital> _withCoords(List<Hospital> hs) => hs
       .where((h) => h.latitude.abs() > 1e-6 || h.longitude.abs() > 1e-6)
@@ -435,8 +446,60 @@ class _HospitalMapPreview extends StatelessWidget {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Best-effort: start permission + location flow once when widget mounts.
+    if (!_locAttempted) {
+      _locAttempted = true;
+      Future<void>(() => _loadUserLocation());
+    }
+  }
+
+  Future<void> _loadUserLocation() async {
+    try {
+      final enabled = await Geolocator.isLocationServiceEnabled();
+      if (!enabled) return;
+
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        return;
+      }
+
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 6),
+        ),
+      );
+      if (!mounted) return;
+      setState(() {
+        _userLocation = LatLng(pos.latitude, pos.longitude);
+      });
+    } catch (_) {
+      // Ignore errors; map still works with hospital pins.
+    }
+  }
+
+  void _centerOnUser() {
+    final p = _userLocation;
+    if (p == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Location not available yet. Check permissions.'),
+        ),
+      );
+      return;
+    }
+    _mapController.move(p, 13);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final pts = _withCoords(hospitals);
+    final pts = _withCoords(widget.hospitals);
     if (pts.isEmpty) {
       return const Padding(
         padding: EdgeInsets.only(top: 6),
@@ -454,6 +517,7 @@ class _HospitalMapPreview extends StatelessWidget {
             fit: StackFit.expand,
             children: [
               FlutterMap(
+                mapController: _mapController,
                 options: MapOptions(
                   initialCenter: center,
                   initialZoom: 11,
@@ -470,6 +534,27 @@ class _HospitalMapPreview extends StatelessWidget {
                   ),
                   MarkerLayer(
                     markers: [
+                      if (_userLocation != null)
+                        Marker(
+                          point: _userLocation!,
+                          width: 22,
+                          height: 22,
+                          alignment: Alignment.center,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.blue,
+                              border: Border.all(color: Colors.white, width: 3),
+                              boxShadow: const [
+                                BoxShadow(
+                                  blurRadius: 10,
+                                  offset: Offset(0, 2),
+                                  color: Colors.black26,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
                       for (final h in pts)
                         Marker(
                           point: LatLng(h.latitude, h.longitude),
@@ -492,6 +577,20 @@ class _HospitalMapPreview extends StatelessWidget {
                     ],
                   ),
                 ],
+              ),
+              Positioned(
+                left: 10,
+                top: 10,
+                child: Material(
+                  color: Colors.white.withValues(alpha: 0.92),
+                  shape: const CircleBorder(),
+                  child: IconButton(
+                    tooltip: 'My location',
+                    onPressed: _centerOnUser,
+                    icon: const Icon(Icons.my_location_rounded),
+                    color: AppColors.primary,
+                  ),
+                ),
               ),
               Positioned(
                 left: 0,

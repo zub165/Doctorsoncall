@@ -69,8 +69,27 @@ class EmrFeaturesApi {
     );
   }
 
-  Future<dynamic> plans() async {
-    final r = await _c.raw.get<dynamic>(ApiPaths.plans);
+  Future<void> adminPatchPatient(int id, Map<String, dynamic> patch) async {
+    await _c.raw.patch<dynamic>(
+      '${ApiPaths.patientsList}$id/',
+      data: patch,
+      options: Options(contentType: Headers.jsonContentType),
+    );
+  }
+
+  Future<void> adminDeletePatient(int id) async {
+    await _c.raw.delete<dynamic>('${ApiPaths.patientsList}$id/');
+  }
+
+  Future<void> adminDeleteProvider(int id) async {
+    await _c.raw.delete<dynamic>('${ApiPaths.providersList}$id/');
+  }
+
+  Future<dynamic> plans({bool fixture = false}) async {
+    final r = await _c.raw.get<dynamic>(
+      ApiPaths.plans,
+      queryParameters: {if (fixture) 'fixture': '1'},
+    );
     return r.data;
   }
 
@@ -155,8 +174,11 @@ class EmrFeaturesApi {
     );
   }
 
-  Future<dynamic> myInvoices() async {
-    final r = await _c.raw.get<dynamic>(ApiPaths.invoices);
+  Future<dynamic> myInvoices({bool fixture = false}) async {
+    final r = await _c.raw.get<dynamic>(
+      ApiPaths.invoices,
+      queryParameters: {if (fixture) 'fixture': '1'},
+    );
     return r.data;
   }
 

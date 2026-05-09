@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../config/api_paths.dart';
 import '../services/emergency_api_client.dart';
 import '../services/emr_features_api.dart';
+import '../services/offline_db.dart';
 import '../services/user_api.dart';
 import '../theme/app_theme.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -11,10 +12,12 @@ class ClientHubScreen extends StatelessWidget {
   const ClientHubScreen({
     super.key,
     required this.apiClient,
+    required this.offlineDb,
     this.onNavigateToShellTab,
   });
 
   final EmergencyApiClient apiClient;
+  final OfflineDb offlineDb;
 
   /// Switch main [AppShell] tab (e.g. open Medical records).
   final ValueChanged<int>? onNavigateToShellTab;
@@ -73,7 +76,7 @@ class ClientHubScreen extends StatelessWidget {
           color: const Color(0xFF4CAF50),
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
-              builder: (_) => _HealthOverviewScreen(apiClient: apiClient),
+              builder: (_) => _HealthOverviewScreen(apiClient: apiClient, offlineDb: offlineDb),
             ),
           ),
         ),
@@ -445,6 +448,26 @@ class _InvoicesScreenState extends State<_InvoicesScreen> {
     }
   }
 
+  Future<void> _loadFixtures() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final data = await EmrFeaturesApi(widget.apiClient).myInvoices(fixture: true);
+      setState(() {
+        _items = _unwrap(data);
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _items = const [];
+        _loading = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -485,9 +508,20 @@ class _InvoicesScreenState extends State<_InvoicesScreen> {
                         Card(
                           child: Padding(
                             padding: const EdgeInsets.all(16),
-                            child: Text(
-                              'No invoices yet.',
-                              style: TextStyle(color: Colors.grey.shade700),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'No invoices yet.',
+                                  style: TextStyle(color: Colors.grey.shade700),
+                                ),
+                                const SizedBox(height: 12),
+                                FilledButton.icon(
+                                  onPressed: _loadFixtures,
+                                  icon: const Icon(Icons.auto_awesome),
+                                  label: const Text('Load demo invoices'),
+                                ),
+                              ],
                             ),
                           ),
                         )
@@ -535,6 +569,7 @@ class _PlanTabState extends State<_PlanTab> {
   Map<String, dynamic>? _active;
   List<Map<String, dynamic>> _plans = const [];
   bool _busy = false;
+  bool _fixtureTried = false;
 
   Future<void> _load() async {
     setState(() {
@@ -543,7 +578,7 @@ class _PlanTabState extends State<_PlanTab> {
     });
     try {
       final api = EmrFeaturesApi(widget.apiClient);
-      final plansRaw = await api.plans();
+      final plansRaw = await api.plans(fixture: _fixtureTried);
       final billingRaw = await api.billingStatus();
 
       List<Map<String, dynamic>> plans = [];
@@ -579,6 +614,11 @@ class _PlanTabState extends State<_PlanTab> {
         _loading = false;
       });
     }
+  }
+
+  void _loadFixtures() {
+    setState(() => _fixtureTried = true);
+    _load();
   }
 
   @override
@@ -635,10 +675,22 @@ class _PlanTabState extends State<_PlanTab> {
               const SizedBox(height: 8),
               Text(_error!, style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: _load,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Retry'),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                alignment: WrapAlignment.center,
+                children: [
+                  FilledButton.icon(
+                    onPressed: _load,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Retry'),
+                  ),
+                  FilledButton.tonalIcon(
+                    onPressed: _loadFixtures,
+                    icon: const Icon(Icons.auto_awesome),
+                    label: const Text('Load demo plans'),
+                  ),
+                ],
               ),
             ],
           ),
@@ -703,7 +755,7 @@ class _PlanTabState extends State<_PlanTab> {
             child: Padding(
               padding: const EdgeInsets.all(14),
               child: Text(
-                'Payments are handled securely by Stripe. Your card details never touch our servers.',
+                'Payments are handled securely by Stripe. Apple Pay / Google Pay will appear automatically when enabled in Stripe.',
                 style: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.w600),
               ),
             ),
@@ -790,9 +842,10 @@ class _PlanTabState extends State<_PlanTab> {
 }
 
 class _HealthOverviewScreen extends StatefulWidget {
-  const _HealthOverviewScreen({required this.apiClient});
+  const _HealthOverviewScreen({required this.apiClient, required this.offlineDb});
 
   final EmergencyApiClient apiClient;
+  final OfflineDb offlineDb;
 
   @override
   State<_HealthOverviewScreen> createState() => _HealthOverviewScreenState();
@@ -803,6 +856,11 @@ class _HealthOverviewScreenState extends State<_HealthOverviewScreen> {
   String? _error;
   int _apptCount = 0;
   int _invCount = 0;
+  int _vitalsCount = 0;
+  int _completedPreventive = 0;
+  int _pendingPreventive = 0;
+  List<String> _pendingItems = const [];
+  List<String> _completedItems = const [];
 
   Future<void> _load() async {
     setState(() {
@@ -813,6 +871,7 @@ class _HealthOverviewScreenState extends State<_HealthOverviewScreen> {
       final api = EmrFeaturesApi(widget.apiClient);
       final a = await api.myAppointments();
       final i = await api.myInvoices();
+      final v = await api.vitals();
 
       int appts = 0;
       if (a is Map && a['appointments'] is List) appts = (a['appointments'] as List).length;
@@ -827,9 +886,23 @@ class _HealthOverviewScreenState extends State<_HealthOverviewScreen> {
         invs = (i['data']['invoices'] as List).length;
       }
 
+      int vitals = 0;
+      if (v is Map && v['vitals'] is List) vitals = (v['vitals'] as List).length;
+      if (v is Map && v['data'] is Map && (v['data']['vitals'] is List)) {
+        vitals = (v['data']['vitals'] as List).length;
+      }
+      if (v is Map && v['results'] is List) vitals = (v['results'] as List).length;
+
+      final preventive = await _computePreventiveCareStatus();
+
       setState(() {
         _apptCount = appts;
         _invCount = invs;
+        _vitalsCount = vitals;
+        _completedPreventive = preventive.completedCount;
+        _pendingPreventive = preventive.pendingCount;
+        _pendingItems = preventive.pendingItems;
+        _completedItems = preventive.completedItems;
         _loading = false;
       });
     } catch (e) {
@@ -838,6 +911,49 @@ class _HealthOverviewScreenState extends State<_HealthOverviewScreen> {
         _loading = false;
       });
     }
+  }
+
+  Future<({
+    int completedCount,
+    int pendingCount,
+    List<String> completedItems,
+    List<String> pendingItems,
+  })> _computePreventiveCareStatus() async {
+    // Minimal, safe default checklist. We mark "completed" if we see matching
+    // lab names in the locally-synced `lab-results` cache.
+    const recommended = <String, List<String>>{
+      'CBC (Complete Blood Count)': ['cbc', 'complete blood count'],
+      'CMP (Comprehensive Metabolic Panel)': ['cmp', 'comprehensive metabolic'],
+      'Lipid panel (Cholesterol)': ['lipid', 'cholesterol'],
+      'HbA1c (Diabetes screening)': ['a1c', 'hba1c', 'hemoglobin a1c'],
+    };
+
+    final labRows = await (widget.offlineDb.select(widget.offlineDb.localLabResults)
+          ..where((t) => t.isDeleted.equals(false)))
+        .get();
+
+    final allText = labRows
+        .map((r) => r.json.toLowerCase())
+        .join(' ');
+
+    final completed = <String>[];
+    final pending = <String>[];
+
+    for (final entry in recommended.entries) {
+      final hit = entry.value.any((k) => allText.contains(k));
+      if (hit) {
+        completed.add(entry.key);
+      } else {
+        pending.add(entry.key);
+      }
+    }
+
+    return (
+      completedCount: completed.length,
+      pendingCount: pending.length,
+      completedItems: completed,
+      pendingItems: pending,
+    );
   }
 
   @override
@@ -895,18 +1011,88 @@ class _HealthOverviewScreenState extends State<_HealthOverviewScreen> {
                               const SizedBox(height: 8),
                               _kv('Invoices', '$_invCount'),
                               const SizedBox(height: 8),
-                              _kv('Vitals', 'Connected (stub)'),
+                              _kv('Vitals', _vitalsCount == 0 ? 'No data yet' : '$_vitalsCount entries'),
+                              const SizedBox(height: 8),
+                              _kv(
+                                'Preventive care',
+                                _pendingPreventive == 0
+                                    ? 'All completed'
+                                    : '$_completedPreventive completed · $_pendingPreventive pending',
+                              ),
                             ],
                           ),
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      if (_pendingItems.isNotEmpty || _completedItems.isNotEmpty)
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Preventive care (Labs)',
+                                  style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
+                                ),
+                                const SizedBox(height: 10),
+                                if (_pendingItems.isNotEmpty) ...[
+                                  Text(
+                                    'Pending',
+                                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                                          fontWeight: FontWeight.w900,
+                                          color: Colors.orange.shade800,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  for (final it in _pendingItems)
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 6),
+                                      child: Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Icon(Icons.schedule, size: 18, color: Colors.orange.shade700),
+                                          const SizedBox(width: 8),
+                                          Expanded(child: Text(it)),
+                                        ],
+                                      ),
+                                    ),
+                                  const SizedBox(height: 10),
+                                ],
+                                if (_completedItems.isNotEmpty) ...[
+                                  Text(
+                                    'Completed',
+                                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                                          fontWeight: FontWeight.w900,
+                                          color: Colors.green.shade700,
+                                        ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  for (final it in _completedItems)
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 6),
+                                      child: Row(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Icon(Icons.check_circle, size: 18, color: Colors.green.shade700),
+                                          const SizedBox(width: 8),
+                                          Expanded(child: Text(it)),
+                                        ],
+                                      ),
+                                    ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
                       const SizedBox(height: 12),
                       Card(
                         child: Padding(
                           padding: const EdgeInsets.all(16),
                           child: Text(
                             'This screen summarizes your account using live endpoints. '
-                            'Vitals are currently a stub endpoint on the backend (empty list).',
+                            'Vitals will appear once recorded (manual entry or device integration). '
+                            'Preventive care uses your lab history to mark common screening labs as pending/completed.',
                             style: TextStyle(color: Colors.grey.shade700),
                           ),
                         ),

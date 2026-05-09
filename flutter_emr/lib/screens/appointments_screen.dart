@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:dio/dio.dart';
 import '../services/emergency_api_client.dart';
 import '../services/emr_features_api.dart';
 import '../theme/app_theme.dart';
@@ -56,11 +57,26 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
 
   void _loadAppointments() {
     setState(() {
-      final role = (widget.role ?? '').toLowerCase().trim();
-      final isAdmin = role == 'admin' || role == 'administrator' || role == 'staff';
-      final isDoctor = role == 'doctor' || role == 'provider' || role == 'physician';
-      _appointmentsFuture = (isAdmin || isDoctor) ? _api.allAppointments() : _api.myAppointments();
+      _appointmentsFuture = _fetchAppointmentsWithFallback();
     });
+  }
+
+  Future<dynamic> _fetchAppointmentsWithFallback() async {
+    final role = (widget.role ?? '').toLowerCase().trim();
+    final isAdmin = role == 'admin' || role == 'administrator' || role == 'staff';
+    final isDoctor = role == 'doctor' || role == 'provider' || role == 'physician';
+
+    // Preferred endpoint based on role.
+    try {
+      return await ((isAdmin || isDoctor) ? _api.allAppointments() : _api.myAppointments());
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      // If role routing is wrong or backend permissions differ, fall back.
+      if ((code == 401 || code == 403) && (isAdmin || isDoctor)) {
+        return await _api.myAppointments();
+      }
+      rethrow;
+    }
   }
 
   @override
@@ -79,6 +95,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           if (snap.hasError) {
             final e = snap.error;
             final u = ApiAccessPlaceholder.isUnauthorized(e);
+            final f = ApiAccessPlaceholder.isForbidden(e);
             return ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               children: [
@@ -86,6 +103,8 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                 ApiAccessPlaceholder(
                   title: u
                       ? 'Sign in for appointments'
+                      : f
+                          ? 'Appointments unavailable'
                       : 'Could not load appointments',
                   message: ApiAccessPlaceholder.shortMessage(e),
                   requireSignIn: u,

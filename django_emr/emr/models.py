@@ -365,6 +365,39 @@ class PatientDocument(models.Model):
         ordering = ["-id"]
 
 
+class PatientVital(models.Model):
+    """
+    Basic vitals capture (manual or device-fed).
+    Intended for patient self-tracking and clinician review.
+    """
+
+    patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name="vitals")
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="recorded_vitals",
+    )
+
+    height_cm = models.FloatField(null=True, blank=True)
+    weight_kg = models.FloatField(null=True, blank=True)
+    temperature_c = models.FloatField(null=True, blank=True)
+    bp_sys = models.IntegerField(null=True, blank=True)
+    bp_dia = models.IntegerField(null=True, blank=True)
+    pulse_bpm = models.IntegerField(null=True, blank=True)
+    resp_min = models.IntegerField(null=True, blank=True)
+    spo2 = models.IntegerField(null=True, blank=True)
+    glucose_mgdl = models.FloatField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "patient_vitals"
+        ordering = ["-created_at"]
+
+
 class PatientShare(models.Model):
     """
     Consent-based share from patient → provider/doctor.

@@ -96,6 +96,14 @@ class LocalLabResults extends Table {
   Set<Column> get primaryKey => {id};
 }
 
+/// AI assistant chat bubbles (single thread, chronological).
+class AiAssistantMessages extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  BoolColumn get isUser => boolean()();
+  TextColumn get body => text()();
+  DateTimeColumn get createdAt => dateTime().withDefault(currentDateAndTime)();
+}
+
 @DriftDatabase(
   tables: [
     SyncState,
@@ -104,13 +112,26 @@ class LocalLabResults extends Table {
     LocalMedicalRecords,
     LocalMedications,
     LocalLabResults,
+    AiAssistantMessages,
   ],
 )
 class OfflineDb extends _$OfflineDb {
   OfflineDb() : super(_openConnection());
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onCreate: (Migrator m) async {
+          await m.createAll();
+        },
+        onUpgrade: (Migrator m, int from, int to) async {
+          if (from < 2) {
+            await m.createTable(aiAssistantMessages);
+          }
+        },
+      );
 
   Future<String?> getState(String keyName) async {
     final row =
@@ -148,6 +169,27 @@ class OfflineDb extends _$OfflineDb {
             ..orderBy([(t) => OrderingTerm.asc(t.createdAt)])
             ..limit(limit))
           .get();
+
+  Future<void> appendAiAssistantMessage({
+    required bool isUser,
+    required String body,
+  }) async {
+    await into(aiAssistantMessages).insert(
+      AiAssistantMessagesCompanion.insert(
+        isUser: isUser,
+        body: body,
+      ),
+    );
+  }
+
+  Future<List<AiAssistantMessage>> aiAssistantMessagesOrdered() =>
+      (select(aiAssistantMessages)
+            ..orderBy([(t) => OrderingTerm.asc(t.id)]))
+          .get();
+
+  Future<void> clearAiAssistantMessages() async {
+    await delete(aiAssistantMessages).go();
+  }
 }
 
 QueryExecutor _openConnection() {

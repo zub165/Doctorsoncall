@@ -54,7 +54,7 @@ urlpatterns = [
     path("medical-records/ai-assist/", views.medical_records_ai_assist),
     path("medical-records/<str:record_id>/", views.medical_record_detail),
     path("medical-records/", views.medical_records_list),
-    path("vitals/", views.vitals_stub),
+    path("vitals/", views.vitals_list),
     path("invoices/", views.invoices_list),
     path("timezone/", views.timezone_list),
     path("settings/general/", views.general_settings),

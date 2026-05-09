@@ -52,6 +52,10 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>This app needs camera access to capture skin/wound photos for triage.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>This app uses your location to show nearby hospitals and estimate distance.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>This app uses the microphone for voice dictation when writing SOAP notes.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>This app needs photo library access to attach images to triage notes.</string>
 </dict>

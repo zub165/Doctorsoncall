@@ -56,6 +56,9 @@ class _SessionGateState extends State<_SessionGate> {
       final client = EmergencyApiClient(tokenRepository: repo);
       String? role;
       if (token != null && token.isNotEmpty) {
+        // Keep a single OfflineDb instance for the whole session.
+        final mkDb = widget.offlineDbFactory ?? () => OfflineDb();
+        _offlineDb ??= mkDb();
         try {
           final me = await UserApi(client).fetchDoctorOnCallMe();
           role = (me['role'] ?? me['portal'] ?? me['user_role'])
@@ -64,8 +67,6 @@ class _SessionGateState extends State<_SessionGate> {
               .trim();
 
           // Best-effort background sync on app start (safe when offline).
-          final mkDb = widget.offlineDbFactory ?? () => OfflineDb();
-          _offlineDb ??= mkDb();
           await SyncService(client: client, db: _offlineDb!).syncAll();
         } catch (_) {
           role = null;
@@ -136,6 +137,7 @@ class _SessionGateState extends State<_SessionGate> {
               : (role == 'doctor' ? 6 : 0);
           return AppShell(
             apiClient: data.client,
+            offlineDb: _offlineDb!,
             initialIndex: initialIndex,
             role: role,
           );

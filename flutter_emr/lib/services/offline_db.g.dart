@@ -1997,6 +1997,304 @@ class LocalLabResultsCompanion extends UpdateCompanion<LocalLabResult> {
   }
 }
 
+class $AiAssistantMessagesTable extends AiAssistantMessages
+    with TableInfo<$AiAssistantMessagesTable, AiAssistantMessage> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $AiAssistantMessagesTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _isUserMeta = const VerificationMeta('isUser');
+  @override
+  late final GeneratedColumn<bool> isUser = GeneratedColumn<bool>(
+    'is_user',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_user" IN (0, 1))',
+    ),
+  );
+  static const VerificationMeta _bodyMeta = const VerificationMeta('body');
+  @override
+  late final GeneratedColumn<String> body = GeneratedColumn<String>(
+    'body',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+    defaultValue: currentDateAndTime,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, isUser, body, createdAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'ai_assistant_messages';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<AiAssistantMessage> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('is_user')) {
+      context.handle(
+        _isUserMeta,
+        isUser.isAcceptableOrUnknown(data['is_user']!, _isUserMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_isUserMeta);
+    }
+    if (data.containsKey('body')) {
+      context.handle(
+        _bodyMeta,
+        body.isAcceptableOrUnknown(data['body']!, _bodyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_bodyMeta);
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  AiAssistantMessage map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return AiAssistantMessage(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      isUser: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_user'],
+      )!,
+      body: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}body'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+    );
+  }
+
+  @override
+  $AiAssistantMessagesTable createAlias(String alias) {
+    return $AiAssistantMessagesTable(attachedDatabase, alias);
+  }
+}
+
+class AiAssistantMessage extends DataClass
+    implements Insertable<AiAssistantMessage> {
+  final int id;
+  final bool isUser;
+  final String body;
+  final DateTime createdAt;
+  const AiAssistantMessage({
+    required this.id,
+    required this.isUser,
+    required this.body,
+    required this.createdAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['is_user'] = Variable<bool>(isUser);
+    map['body'] = Variable<String>(body);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    return map;
+  }
+
+  AiAssistantMessagesCompanion toCompanion(bool nullToAbsent) {
+    return AiAssistantMessagesCompanion(
+      id: Value(id),
+      isUser: Value(isUser),
+      body: Value(body),
+      createdAt: Value(createdAt),
+    );
+  }
+
+  factory AiAssistantMessage.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return AiAssistantMessage(
+      id: serializer.fromJson<int>(json['id']),
+      isUser: serializer.fromJson<bool>(json['isUser']),
+      body: serializer.fromJson<String>(json['body']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'isUser': serializer.toJson<bool>(isUser),
+      'body': serializer.toJson<String>(body),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+    };
+  }
+
+  AiAssistantMessage copyWith({
+    int? id,
+    bool? isUser,
+    String? body,
+    DateTime? createdAt,
+  }) => AiAssistantMessage(
+    id: id ?? this.id,
+    isUser: isUser ?? this.isUser,
+    body: body ?? this.body,
+    createdAt: createdAt ?? this.createdAt,
+  );
+  AiAssistantMessage copyWithCompanion(AiAssistantMessagesCompanion data) {
+    return AiAssistantMessage(
+      id: data.id.present ? data.id.value : this.id,
+      isUser: data.isUser.present ? data.isUser.value : this.isUser,
+      body: data.body.present ? data.body.value : this.body,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AiAssistantMessage(')
+          ..write('id: $id, ')
+          ..write('isUser: $isUser, ')
+          ..write('body: $body, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, isUser, body, createdAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is AiAssistantMessage &&
+          other.id == this.id &&
+          other.isUser == this.isUser &&
+          other.body == this.body &&
+          other.createdAt == this.createdAt);
+}
+
+class AiAssistantMessagesCompanion extends UpdateCompanion<AiAssistantMessage> {
+  final Value<int> id;
+  final Value<bool> isUser;
+  final Value<String> body;
+  final Value<DateTime> createdAt;
+  const AiAssistantMessagesCompanion({
+    this.id = const Value.absent(),
+    this.isUser = const Value.absent(),
+    this.body = const Value.absent(),
+    this.createdAt = const Value.absent(),
+  });
+  AiAssistantMessagesCompanion.insert({
+    this.id = const Value.absent(),
+    required bool isUser,
+    required String body,
+    this.createdAt = const Value.absent(),
+  }) : isUser = Value(isUser),
+       body = Value(body);
+  static Insertable<AiAssistantMessage> custom({
+    Expression<int>? id,
+    Expression<bool>? isUser,
+    Expression<String>? body,
+    Expression<DateTime>? createdAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (isUser != null) 'is_user': isUser,
+      if (body != null) 'body': body,
+      if (createdAt != null) 'created_at': createdAt,
+    });
+  }
+
+  AiAssistantMessagesCompanion copyWith({
+    Value<int>? id,
+    Value<bool>? isUser,
+    Value<String>? body,
+    Value<DateTime>? createdAt,
+  }) {
+    return AiAssistantMessagesCompanion(
+      id: id ?? this.id,
+      isUser: isUser ?? this.isUser,
+      body: body ?? this.body,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (isUser.present) {
+      map['is_user'] = Variable<bool>(isUser.value);
+    }
+    if (body.present) {
+      map['body'] = Variable<String>(body.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AiAssistantMessagesCompanion(')
+          ..write('id: $id, ')
+          ..write('isUser: $isUser, ')
+          ..write('body: $body, ')
+          ..write('createdAt: $createdAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$OfflineDb extends GeneratedDatabase {
   _$OfflineDb(QueryExecutor e) : super(e);
   $OfflineDbManager get managers => $OfflineDbManager(this);
@@ -2012,6 +2310,8 @@ abstract class _$OfflineDb extends GeneratedDatabase {
   late final $LocalLabResultsTable localLabResults = $LocalLabResultsTable(
     this,
   );
+  late final $AiAssistantMessagesTable aiAssistantMessages =
+      $AiAssistantMessagesTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -2023,6 +2323,7 @@ abstract class _$OfflineDb extends GeneratedDatabase {
     localMedicalRecords,
     localMedications,
     localLabResults,
+    aiAssistantMessages,
   ];
 }
 
@@ -3200,6 +3501,197 @@ typedef $$LocalLabResultsTableProcessedTableManager =
       LocalLabResult,
       PrefetchHooks Function()
     >;
+typedef $$AiAssistantMessagesTableCreateCompanionBuilder =
+    AiAssistantMessagesCompanion Function({
+      Value<int> id,
+      required bool isUser,
+      required String body,
+      Value<DateTime> createdAt,
+    });
+typedef $$AiAssistantMessagesTableUpdateCompanionBuilder =
+    AiAssistantMessagesCompanion Function({
+      Value<int> id,
+      Value<bool> isUser,
+      Value<String> body,
+      Value<DateTime> createdAt,
+    });
+
+class $$AiAssistantMessagesTableFilterComposer
+    extends Composer<_$OfflineDb, $AiAssistantMessagesTable> {
+  $$AiAssistantMessagesTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isUser => $composableBuilder(
+    column: $table.isUser,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get body => $composableBuilder(
+    column: $table.body,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$AiAssistantMessagesTableOrderingComposer
+    extends Composer<_$OfflineDb, $AiAssistantMessagesTable> {
+  $$AiAssistantMessagesTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isUser => $composableBuilder(
+    column: $table.isUser,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get body => $composableBuilder(
+    column: $table.body,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$AiAssistantMessagesTableAnnotationComposer
+    extends Composer<_$OfflineDb, $AiAssistantMessagesTable> {
+  $$AiAssistantMessagesTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<bool> get isUser =>
+      $composableBuilder(column: $table.isUser, builder: (column) => column);
+
+  GeneratedColumn<String> get body =>
+      $composableBuilder(column: $table.body, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+}
+
+class $$AiAssistantMessagesTableTableManager
+    extends
+        RootTableManager<
+          _$OfflineDb,
+          $AiAssistantMessagesTable,
+          AiAssistantMessage,
+          $$AiAssistantMessagesTableFilterComposer,
+          $$AiAssistantMessagesTableOrderingComposer,
+          $$AiAssistantMessagesTableAnnotationComposer,
+          $$AiAssistantMessagesTableCreateCompanionBuilder,
+          $$AiAssistantMessagesTableUpdateCompanionBuilder,
+          (
+            AiAssistantMessage,
+            BaseReferences<
+              _$OfflineDb,
+              $AiAssistantMessagesTable,
+              AiAssistantMessage
+            >,
+          ),
+          AiAssistantMessage,
+          PrefetchHooks Function()
+        > {
+  $$AiAssistantMessagesTableTableManager(
+    _$OfflineDb db,
+    $AiAssistantMessagesTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$AiAssistantMessagesTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$AiAssistantMessagesTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$AiAssistantMessagesTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<bool> isUser = const Value.absent(),
+                Value<String> body = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+              }) => AiAssistantMessagesCompanion(
+                id: id,
+                isUser: isUser,
+                body: body,
+                createdAt: createdAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required bool isUser,
+                required String body,
+                Value<DateTime> createdAt = const Value.absent(),
+              }) => AiAssistantMessagesCompanion.insert(
+                id: id,
+                isUser: isUser,
+                body: body,
+                createdAt: createdAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$AiAssistantMessagesTableProcessedTableManager =
+    ProcessedTableManager<
+      _$OfflineDb,
+      $AiAssistantMessagesTable,
+      AiAssistantMessage,
+      $$AiAssistantMessagesTableFilterComposer,
+      $$AiAssistantMessagesTableOrderingComposer,
+      $$AiAssistantMessagesTableAnnotationComposer,
+      $$AiAssistantMessagesTableCreateCompanionBuilder,
+      $$AiAssistantMessagesTableUpdateCompanionBuilder,
+      (
+        AiAssistantMessage,
+        BaseReferences<
+          _$OfflineDb,
+          $AiAssistantMessagesTable,
+          AiAssistantMessage
+        >,
+      ),
+      AiAssistantMessage,
+      PrefetchHooks Function()
+    >;
 
 class $OfflineDbManager {
   final _$OfflineDb _db;
@@ -3216,4 +3708,6 @@ class $OfflineDbManager {
       $$LocalMedicationsTableTableManager(_db, _db.localMedications);
   $$LocalLabResultsTableTableManager get localLabResults =>
       $$LocalLabResultsTableTableManager(_db, _db.localLabResults);
+  $$AiAssistantMessagesTableTableManager get aiAssistantMessages =>
+      $$AiAssistantMessagesTableTableManager(_db, _db.aiAssistantMessages);
 }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/auth_api.dart';
 import '../services/emergency_api_client.dart';
+import '../services/offline_db.dart';
 import '../theme/app_theme.dart';
 import 'admin_hub_screen.dart';
 import 'appointments_screen.dart';
@@ -26,11 +27,13 @@ class AppShell extends StatefulWidget {
   const AppShell({
     super.key,
     required this.apiClient,
+    required this.offlineDb,
     this.initialIndex = 0,
     this.role,
   });
 
   final EmergencyApiClient apiClient;
+  final OfflineDb offlineDb;
   final int initialIndex;
   final String? role;
 
@@ -189,12 +192,13 @@ class _AppShellState extends State<AppShell> {
             onBooked: () => setState(() => _index = 6),
           ),
           DiscoveryScreen(apiClient: c),
-          PatientsProvidersScreen(apiClient: c),
+          PatientsProvidersScreen(apiClient: c, role: widget.role),
           FeedbackScreen(apiClient: c),
           SettingsScreen(apiClient: c),
           ChangePasswordScreen(apiClient: c),
           ClientHubScreen(
             apiClient: c,
+            offlineDb: widget.offlineDb,
             onNavigateToShellTab: (i) => setState(() => _index = i),
           ),
           ProviderApplyScreen(apiClient: c),

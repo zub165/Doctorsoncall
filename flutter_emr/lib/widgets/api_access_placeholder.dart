@@ -31,7 +31,10 @@ class ApiAccessPlaceholder extends StatelessWidget {
 
   static bool isUnauthorized(Object? error) =>
       error is DioException &&
-      (error.response?.statusCode == 401 || error.response?.statusCode == 403);
+      (error.response?.statusCode == 401);
+
+  static bool isForbidden(Object? error) =>
+      error is DioException && (error.response?.statusCode == 403);
 
   static String shortMessage(Object? error) {
     if (error is DioException) {

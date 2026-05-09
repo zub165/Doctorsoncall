@@ -43,6 +43,7 @@ from .models import (
     PatientDocument,
     PatientShare,
     PatientSubscription,
+    PatientVital,
 )
 from .serializers import (
     AppointmentSerializer,
@@ -65,6 +66,7 @@ from .serializers import (
     PatientDocumentSerializer,
     PatientShareSerializer,
     PatientSubscriptionSerializer,
+    PatientVitalSerializer,
 )
 
 
@@ -1542,6 +1544,40 @@ class PlanViewSet(viewsets.ModelViewSet):
     serializer_class = PlanSerializer
     permission_classes = [_ReadAnyWriteAdmin]
 
+    def list(self, request, *args, **kwargs):
+        want_fixture = (request.query_params.get("fixture") or "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "y",
+        )
+        if want_fixture and not Plan.objects.exists():
+            Plan.objects.create(
+                plan_name="Basic",
+                duration="Monthly",
+                price="9.99",
+                number_appointments="1",
+                ai_bot="no",
+                discount="",
+            )
+            Plan.objects.create(
+                plan_name="Plus",
+                duration="Monthly",
+                price="29.99",
+                number_appointments="3",
+                ai_bot="yes",
+                discount="",
+            )
+            Plan.objects.create(
+                plan_name="Premium",
+                duration="Monthly",
+                price="49.99",
+                number_appointments="Unlimited",
+                ai_bot="yes",
+                discount="",
+            )
+        return super().list(request, *args, **kwargs)
+
 
 class RoleViewSet(viewsets.ModelViewSet):
     queryset = Role.objects.all()
@@ -1638,10 +1674,62 @@ def appointment_create(request):
     return _success({"appointment": AppointmentSerializer(appt).data}, message="Created")
 
 
-@api_view(["GET"])
-@permission_classes([AllowAny])
-def vitals_stub(request):
-    return _success({"vitals": [], "note": "Wire Vitals model / devices here"})
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+def vitals_list(request):
+    """
+    GET: list vitals
+      - staff: all vitals (latest 200)
+      - patient: their own vitals (latest 200)
+
+    POST: create vitals for current patient
+      accepts: height_cm, weight_kg, temperature_c, bp_sys, bp_dia, pulse_bpm,
+               resp_min, spo2, glucose_mgdl, notes
+    """
+    user = request.user
+    is_staff = _is_staffish(user)
+    patient = _get_patient_for_user(user)
+
+    if request.method == "GET":
+        qs = PatientVital.objects.all()
+        if not is_staff:
+            if not patient:
+                return _success({"vitals": []})
+            qs = qs.filter(patient=patient)
+        ser = PatientVitalSerializer(qs[:200], many=True)
+        return _success({"vitals": ser.data})
+
+    # POST
+    if not patient and not is_staff:
+        return _error(
+            {"detail": ["Patient profile not found"]},
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Staff can optionally pass patient_id; otherwise use self patient
+    target_patient = patient
+    if is_staff:
+        pid = request.data.get("patient_id") or request.data.get("patient")
+        if pid:
+            target_patient = Patient.objects.filter(id=pid).first()
+    if not target_patient:
+        return _error({"detail": ["patient_id required"]}, status.HTTP_400_BAD_REQUEST)
+
+    v = PatientVital.objects.create(
+        patient=target_patient,
+        recorded_by=user,
+        height_cm=request.data.get("height_cm") or None,
+        weight_kg=request.data.get("weight_kg") or None,
+        temperature_c=request.data.get("temperature_c") or None,
+        bp_sys=request.data.get("bp_sys") or None,
+        bp_dia=request.data.get("bp_dia") or None,
+        pulse_bpm=request.data.get("pulse_bpm") or None,
+        resp_min=request.data.get("resp_min") or None,
+        spo2=request.data.get("spo2") or None,
+        glucose_mgdl=request.data.get("glucose_mgdl") or None,
+        notes=str(request.data.get("notes") or "").strip(),
+    )
+    return _success({"vital": PatientVitalSerializer(v).data}, message="Created")
 
 
 @api_view(["GET"])
@@ -1866,6 +1954,37 @@ def invoices_list(request):
         if not patient:
             return _success({"invoices": []})
         qs = Invoices.objects.filter(patient=patient)[:100]
+        want_fixture = (request.query_params.get("fixture") or "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "y",
+        )
+        if want_fixture and not qs.exists():
+            # Create a small demo set so mobile UI isn't empty in dev/demo.
+            today = timezone.now().date()
+            Invoices.objects.create(
+                patient=patient,
+                name="Consultation fee",
+                email=getattr(request.user, "email", "") or "",
+                amount="49.00",
+                invoice_date=today,
+            )
+            Invoices.objects.create(
+                patient=patient,
+                name="Lab panel (screening)",
+                email=getattr(request.user, "email", "") or "",
+                amount="89.00",
+                invoice_date=today,
+            )
+            Invoices.objects.create(
+                patient=patient,
+                name="Follow-up visit",
+                email=getattr(request.user, "email", "") or "",
+                amount="29.00",
+                invoice_date=today,
+            )
+            qs = Invoices.objects.filter(patient=patient)[:100]
         return _success({"invoices": InvoicesSerializer(qs, many=True).data})
     elif request.method == "POST":
         patient = Patient.objects.filter(user=request.user).first()

@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:drift/drift.dart' hide Column;
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/medical_record.dart';
@@ -103,6 +104,7 @@ class _ShareTabState extends State<_ShareTab> {
   final _note = TextEditingController();
   bool _includeEmail = false;
   bool _busy = false;
+  bool _localSharing = false;
 
   bool get _isDoctorish {
     final r = (widget.role ?? '').toLowerCase().trim();
@@ -150,6 +152,16 @@ class _ShareTabState extends State<_ShareTab> {
         _loading = false;
       });
     } catch (e) {
+      // IMPORTANT: even if backend share endpoints are missing (404),
+      // we still want to show local share (Messages/WhatsApp/Bluetooth).
+      if (e is DioException && e.response?.statusCode == 404) {
+        setState(() {
+          _items = const [];
+          _loading = false;
+          _error = null;
+        });
+        return;
+      }
       setState(() {
         _error = e.toString();
         _items = const [];
@@ -198,18 +210,57 @@ class _ShareTabState extends State<_ShareTab> {
     }
   }
 
+  Future<void> _shareViaSystem() async {
+    final text = _note.text.trim();
+    if (text.isEmpty) {
+      setState(() => _error = 'Write something to share first.');
+      return;
+    }
+    setState(() {
+      _localSharing = true;
+      _error = null;
+    });
+    try {
+      await SharePlus.instance.share(
+        ShareParams(
+          text: text,
+          subject: 'Doctor On Call — share',
+          sharePositionOrigin: Rect.fromLTWH(
+            0,
+            0,
+            MediaQuery.of(context).size.width,
+            MediaQuery.of(context).size.height,
+          ),
+        ),
+      );
+    } catch (e) {
+      setState(() => _error = 'Share failed: $e');
+    } finally {
+      if (mounted) setState(() => _localSharing = false);
+    }
+  }
+
+  Future<void> _shareToWhatsApp() async {
+    final text = _note.text.trim();
+    if (text.isEmpty) {
+      setState(() => _error = 'Write something to share first.');
+      return;
+    }
+    final uri = Uri.parse('https://wa.me/?text=${Uri.encodeComponent(text)}');
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok && mounted) {
+        setState(() => _error = 'Could not open WhatsApp.');
+      }
+    } catch (e) {
+      setState(() => _error = 'Could not open WhatsApp: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
       return const Center(child: CircularProgressIndicator(color: AppColors.primary));
-    }
-    if (_error != null && _error!.isNotEmpty) {
-      return ApiAccessPlaceholder(
-        title: 'Share unavailable',
-        message: _error!,
-        icon: Icons.ios_share_rounded,
-        onRetry: _load,
-      );
     }
 
     return RefreshIndicator(
@@ -235,6 +286,72 @@ class _ShareTabState extends State<_ShareTab> {
                     'If emergency, call local emergency services.',
                     style: TextStyle(color: Colors.grey.shade700),
                   ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Share via apps (Bluetooth · Messages · WhatsApp)',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _note,
+                    minLines: 3,
+                    maxLines: 6,
+                    decoration: const InputDecoration(
+                      labelText: 'Text to share',
+                      hintText: 'Write or paste the summary/notes you want to share…',
+                    ),
+                    enabled: !_busy && !_localSharing,
+                    textCapitalization: TextCapitalization.sentences,
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: (_busy || _localSharing) ? null : _shareViaSystem,
+                        icon: _localSharing
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Icon(Icons.share_rounded),
+                        label: Text(_localSharing ? 'Sharing…' : 'Share'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: (_busy || _localSharing) ? null : _shareToWhatsApp,
+                        icon: const Icon(Icons.chat_rounded),
+                        label: const Text('WhatsApp'),
+                      ),
+                    ],
+                  ),
+                  if (_error != null && _error!.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      _error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -451,8 +568,20 @@ class _DocumentsTabState extends State<_DocumentsTab> {
         _loading = false;
       });
     } catch (e) {
+      String msg = e.toString();
+      if (e is DioException) {
+        final code = e.response?.statusCode;
+        if (code == 404) {
+          msg =
+              'This server does not support Documents yet (404).\n\n'
+              'Fix: deploy/update the Django EMR backend to include `GET/POST /api/documents/` and `POST /api/documents/<id>/`.\n'
+              'If you are running locally, set `--dart-define=EMR_API_BASE_URL=http://127.0.0.1:8012/api/` and restart the app.';
+        } else if (code == 401 || code == 403) {
+          msg = 'Sign in is required to view documents.';
+        }
+      }
       setState(() {
-        _error = e.toString();
+        _error = msg;
         _docs = const [];
         _loading = false;
       });

@@ -7,9 +7,10 @@ import '../theme/app_theme.dart';
 import '../widgets/api_access_placeholder.dart';
 
 class PatientsProvidersScreen extends StatefulWidget {
-  const PatientsProvidersScreen({super.key, required this.apiClient});
+  const PatientsProvidersScreen({super.key, required this.apiClient, this.role});
 
   final EmergencyApiClient apiClient;
+  final String? role;
 
   @override
   State<PatientsProvidersScreen> createState() => _PatientsProvidersScreenState();
@@ -44,6 +45,8 @@ class _PatientsProvidersScreenState extends State<PatientsProvidersScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final role = (widget.role ?? '').toLowerCase().trim();
+    final isAdmin = role == 'admin' || role == 'administrator' || role == 'staff';
     return DefaultTabController(
       length: 3,
       child: Column(
@@ -69,8 +72,18 @@ class _PatientsProvidersScreenState extends State<PatientsProvidersScreen> {
               },
               child: TabBarView(
                 children: [
-                  _PatientsTab(future: _patientsF, onRetry: _reload),
-                  _ProvidersTab(future: _providersF, onRetry: _reload),
+                  _PatientsTab(
+                    future: _patientsF,
+                    onRetry: _reload,
+                    api: _api,
+                    canEdit: isAdmin,
+                  ),
+                  _ProvidersTab(
+                    future: _providersF,
+                    onRetry: _reload,
+                    api: _api,
+                    canEdit: isAdmin,
+                  ),
                   _ScheduleTab(future: _scheduleF, onRetry: _reload),
                 ],
               ),
@@ -83,10 +96,98 @@ class _PatientsProvidersScreenState extends State<PatientsProvidersScreen> {
 }
 
 class _PatientsTab extends StatelessWidget {
-  const _PatientsTab({required this.future, required this.onRetry});
+  const _PatientsTab({
+    required this.future,
+    required this.onRetry,
+    required this.api,
+    required this.canEdit,
+  });
 
   final Future<dynamic> future;
   final VoidCallback onRetry;
+  final EmrFeaturesApi api;
+  final bool canEdit;
+
+  int? _pickId(Map<String, dynamic> m) {
+    final v = m['id'] ?? m['pk'] ?? m['patient_id'];
+    if (v is int) return v;
+    if (v is String) return int.tryParse(v);
+    if (v is num) return v.toInt();
+    return null;
+  }
+
+  Future<void> _editPatient(BuildContext context, Map<String, dynamic> m) async {
+    final id = _pickId(m);
+    if (id == null) return;
+    final nameC =
+        TextEditingController(text: (m['name'] ?? m['full_name'] ?? '').toString());
+    final emailC =
+        TextEditingController(text: (m['email'] ?? '').toString());
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit patient'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameC,
+              decoration: const InputDecoration(labelText: 'Name'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: emailC,
+              decoration: const InputDecoration(labelText: 'Email'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    final patch = <String, dynamic>{
+      'name': nameC.text.trim(),
+      'email': emailC.text.trim(),
+    }..removeWhere((k, v) => (v as String).isEmpty);
+
+    await api.adminPatchPatient(id, patch);
+  }
+
+  Future<void> _deletePatient(BuildContext context, Map<String, dynamic> m) async {
+    final id = _pickId(m);
+    if (id == null) return;
+    final name = (m['name'] ?? m['full_name'] ?? 'Patient').toString();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete patient?'),
+        content: Text('Delete “$name”? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await api.adminDeletePatient(id);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -131,6 +232,29 @@ class _PatientsTab extends StatelessWidget {
                 leading: const CircleAvatar(child: Icon(Icons.person_outline)),
                 title: Text(name),
                 subtitle: Text(email),
+                trailing: canEdit
+                    ? PopupMenuButton<String>(
+                        onSelected: (v) async {
+                          try {
+                            if (v == 'edit') {
+                              await _editPatient(context, m);
+                            } else if (v == 'delete') {
+                              await _deletePatient(context, m);
+                            }
+                            onRetry();
+                          } catch (e) {
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Action failed: $e')),
+                            );
+                          }
+                        },
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(value: 'edit', child: Text('Edit')),
+                          PopupMenuItem(value: 'delete', child: Text('Delete')),
+                        ],
+                      )
+                    : null,
               ),
             );
           },
@@ -141,10 +265,105 @@ class _PatientsTab extends StatelessWidget {
 }
 
 class _ProvidersTab extends StatelessWidget {
-  const _ProvidersTab({required this.future, required this.onRetry});
+  const _ProvidersTab({
+    required this.future,
+    required this.onRetry,
+    required this.api,
+    required this.canEdit,
+  });
 
   final Future<dynamic> future;
   final VoidCallback onRetry;
+  final EmrFeaturesApi api;
+  final bool canEdit;
+
+  int? _pickId(Map<String, dynamic> m) {
+    final v = m['id'] ?? m['pk'] ?? m['provider_id'];
+    if (v is int) return v;
+    if (v is String) return int.tryParse(v);
+    if (v is num) return v.toInt();
+    return null;
+  }
+
+  Future<void> _editProvider(BuildContext context, Map<String, dynamic> m) async {
+    final id = _pickId(m);
+    if (id == null) return;
+    final nameC = TextEditingController(
+      text: (m['full_name'] ?? m['name'] ?? '').toString(),
+    );
+    final emailC = TextEditingController(text: (m['email'] ?? '').toString());
+    final statusC = TextEditingController(text: (m['status'] ?? '').toString());
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Edit physician'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameC,
+              decoration: const InputDecoration(labelText: 'Full name'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: emailC,
+              decoration: const InputDecoration(labelText: 'Email'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: statusC,
+              decoration: const InputDecoration(labelText: 'Status (optional)'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    final patch = <String, dynamic>{
+      'full_name': nameC.text.trim(),
+      'email': emailC.text.trim(),
+      'status': statusC.text.trim(),
+    }..removeWhere((_, v) => (v as String).isEmpty);
+
+    await api.adminPatchProvider(id, patch);
+  }
+
+  Future<void> _deleteProvider(BuildContext context, Map<String, dynamic> m) async {
+    final id = _pickId(m);
+    if (id == null) return;
+    final name = (m['full_name'] ?? m['name'] ?? 'Provider').toString();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete physician?'),
+        content: Text('Delete “$name”? This cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await api.adminDeleteProvider(id);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -190,6 +409,29 @@ class _ProvidersTab extends StatelessWidget {
                 leading: const CircleAvatar(child: Icon(Icons.badge_outlined)),
                 title: Text(name),
                 subtitle: Text([email, if (status.isNotEmpty) status].join(' · ')),
+                trailing: canEdit
+                    ? PopupMenuButton<String>(
+                        onSelected: (v) async {
+                          try {
+                            if (v == 'edit') {
+                              await _editProvider(context, m);
+                            } else if (v == 'delete') {
+                              await _deleteProvider(context, m);
+                            }
+                            onRetry();
+                          } catch (e) {
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Action failed: $e')),
+                            );
+                          }
+                        },
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(value: 'edit', child: Text('Edit')),
+                          PopupMenuItem(value: 'delete', child: Text('Delete')),
+                        ],
+                      )
+                    : null,
               ),
             );
           },
@@ -204,6 +446,62 @@ class _ScheduleTab extends StatelessWidget {
 
   final Future<dynamic> future;
   final VoidCallback onRetry;
+
+  List<dynamic> _unwrapAppointments(dynamic data) {
+    if (data is List) return data;
+    if (data is! Map) return const [];
+
+    final root = Map<String, dynamic>.from(data);
+    final d = root['data'];
+    final results = root['results'];
+    final appts = root['appointments'];
+
+    if (appts is List) return appts;
+    if (results is List) return results;
+    if (d is List) return d;
+    if (d is Map) {
+      final dm = Map<String, dynamic>.from(d);
+      final dappts = dm['appointments'];
+      final dresults = dm['results'];
+      if (dappts is List) return dappts;
+      if (dresults is List) return dresults;
+      final dd = dm['data'];
+      if (dd is List) return dd;
+      if (dd is Map) {
+        final ddm = Map<String, dynamic>.from(dd);
+        final ddappts = ddm['appointments'];
+        final ddresults = ddm['results'];
+        if (ddappts is List) return ddappts;
+        if (ddresults is List) return ddresults;
+      }
+    }
+    return const [];
+  }
+
+  ({String patient, String provider}) _namesFrom(dynamic appt) {
+    if (appt is! Map) return (patient: '', provider: '');
+    final m = Map<String, dynamic>.from(appt);
+
+    String pickPatient() {
+      final p = m['patient'];
+      if (p is Map) {
+        final pm = Map<String, dynamic>.from(p);
+        return (pm['name'] ?? pm['full_name'] ?? pm['fullName'] ?? '').toString();
+      }
+      return (m['patient_name'] ?? m['patientName'] ?? m['patient_full_name'] ?? '').toString();
+    }
+
+    String pickProvider() {
+      final p = m['provider'] ?? m['doctor'];
+      if (p is Map) {
+        final pm = Map<String, dynamic>.from(p);
+        return (pm['full_name'] ?? pm['name'] ?? pm['fullName'] ?? '').toString();
+      }
+      return (m['provider_name'] ?? m['doctor_name'] ?? m['providerName'] ?? '').toString();
+    }
+
+    return (patient: pickPatient().trim(), provider: pickProvider().trim());
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -231,8 +529,7 @@ class _ScheduleTab extends StatelessWidget {
         }
 
         final data = snap.data;
-        final raw = data is Map ? (data['appointments'] ?? const []) : const [];
-        final List<dynamic> rows = raw is List ? raw : const [];
+        final rows = _unwrapAppointments(data);
         if (rows.isEmpty) {
           return const Center(child: Text('No appointments yet'));
         }
@@ -244,8 +541,9 @@ class _ScheduleTab extends StatelessWidget {
             final m = rows[i] is Map ? Map<String, dynamic>.from(rows[i] as Map) : <String, dynamic>{};
             final date = (m['date'] ?? '').toString();
             final time = (m['time'] ?? '').toString();
-            final patientName = (m['patient'] is Map ? (m['patient']['name'] ?? '') : '').toString();
-            final providerName = (m['provider'] is Map ? (m['provider']['full_name'] ?? '') : '').toString();
+            final names = _namesFrom(m);
+            final patientName = names.patient;
+            final providerName = names.provider;
             return Card(
               margin: const EdgeInsets.only(bottom: 10),
               child: ListTile(
