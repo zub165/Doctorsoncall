@@ -570,7 +570,6 @@ class _PlanTabState extends State<_PlanTab> {
   Map<String, dynamic>? _active;
   List<Map<String, dynamic>> _plans = const [];
   bool _busy = false;
-  bool _fixtureTried = false;
 
   Future<void> _load({bool requestDemoSeed = false}) async {
     setState(() {
@@ -607,8 +606,7 @@ class _PlanTabState extends State<_PlanTab> {
   }
 
   void _loadFixtures() {
-    setState(() => _fixtureTried = true);
-    _load();
+    _load(requestDemoSeed: true);
   }
 
   @override
