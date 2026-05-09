@@ -18,16 +18,17 @@ import '../theme/app_theme.dart';
 /// - Shows latest local medical record (offline-first).
 /// - Can run best-effort sync before starting the visit.
 class DoctorVisitScreen extends StatefulWidget {
-  const DoctorVisitScreen({super.key, required this.apiClient});
+  const DoctorVisitScreen({super.key, required this.apiClient, required this.offlineDb});
 
   final EmergencyApiClient apiClient;
+  final OfflineDb offlineDb;
 
   @override
   State<DoctorVisitScreen> createState() => _DoctorVisitScreenState();
 }
 
 class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
-  late final OfflineDb _db = OfflineDb();
+  OfflineDb get _db => widget.offlineDb;
   MedicalRecord? _latest;
   bool _syncing = false;
   final ImagePicker _picker = ImagePicker();
@@ -63,7 +64,6 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
     _spo2.dispose();
     _glucose.dispose();
     _triageNotes.dispose();
-    _db.close();
     super.dispose();
   }
 

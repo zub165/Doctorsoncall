@@ -185,7 +185,7 @@ class _AppShellState extends State<AppShell> {
             focusDate: _appointmentFocusDate,
             role: widget.role,
           ),
-          DoctorVisitScreen(apiClient: c),
+          DoctorVisitScreen(apiClient: c, offlineDb: widget.offlineDb),
           BookAppointmentScreen(
             apiClient: c,
             focusDate: _appointmentFocusDate,
