@@ -52,29 +52,42 @@ class _SessionGateState extends State<_SessionGate> {
     super.initState();
     _boot = () async {
       final repo = TokenRepository();
-      final token = await repo.readToken();
+      final rawToken = await repo.readToken();
+      final token = rawToken?.trim();
       final client = EmergencyApiClient(tokenRepository: repo);
       String? role;
+      String? effectiveToken = (token != null && token.isNotEmpty) ? token : null;
 
       // Keep a single OfflineDb instance for the whole session (even before sign-in).
       final mkDb = widget.offlineDbFactory ?? () => OfflineDb();
       _offlineDb ??= mkDb();
 
-      if (token != null && token.isNotEmpty) {
+      if (effectiveToken != null) {
         try {
           final me = await UserApi(client).fetchDoctorOnCallMe();
-          role = (me['role'] ?? me['portal'] ?? me['user_role'])
-              ?.toString()
-              .toLowerCase()
-              .trim();
+          final authed = me['is_authenticated'] == true;
+          if (!authed) {
+            await repo.clear();
+            client.raw.options.headers.remove('Authorization');
+            effectiveToken = null;
+            role = null;
+          } else {
+            role = (me['role'] ?? me['portal'] ?? me['user_role'])
+                ?.toString()
+                .toLowerCase()
+                .trim();
 
-          // Best-effort background sync on app start (safe when offline).
-          await SyncService(client: client, db: _offlineDb!).syncAll();
+            // Best-effort background sync on app start (safe when offline).
+            await SyncService(client: client, db: _offlineDb!).syncAll();
+          }
         } catch (_) {
+          await repo.clear();
+          client.raw.options.headers.remove('Authorization');
+          effectiveToken = null;
           role = null;
         }
       }
-      return (client: client, token: token, role: role);
+      return (client: client, token: effectiveToken, role: role);
     }();
   }
 
@@ -131,7 +144,7 @@ class _SessionGateState extends State<_SessionGate> {
           );
         }
         final data = snap.requireData;
-        if (data.token != null && data.token!.isNotEmpty) {
+        if (data.token != null && data.token!.trim().isNotEmpty) {
           final role = (data.role ?? '').toLowerCase();
           // Minimal role routing: Admins land on Admin hub, Doctors on Appointments.
           final initialIndex = role == 'admin' || role == 'administrator' || role == 'staff'

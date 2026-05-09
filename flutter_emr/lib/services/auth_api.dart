@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 
+import '../config/api_config.dart';
 import '../config/api_paths.dart';
 import '../models/login_portal.dart';
 import 'emergency_api_client.dart';
@@ -65,10 +66,12 @@ class AuthApi {
     );
 
     final body = res.data;
-    final token = _tokenFromLoginResponse(body);
+    final token = _tokenFromLoginResponse(body)?.trim();
     if (token != null && token.isNotEmpty) {
       await _client.tokenRepo.saveToken(token);
       await _client.tokenRepo.saveLoginPortal(portal.apiValue);
+      // Ensure the very next request uses the new token even if secure storage read lags.
+      _client.raw.options.headers['Authorization'] = ApiHeaders.authorizationToken(token);
       return;
     }
 
@@ -119,7 +122,7 @@ class AuthApi {
       );
     }
 
-    final tokenFromBody = _fallbackToken(body);
+    final tokenFromBody = _fallbackToken(body)?.trim();
     if (tokenFromBody != null && tokenFromBody.isNotEmpty) {
       await _client.tokenRepo.saveToken(tokenFromBody);
       final portalToPersist = registrationPortal == LoginPortal.doctor

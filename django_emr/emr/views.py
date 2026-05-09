@@ -1,4 +1,6 @@
+import errno
 import json
+import socket
 
 from django.contrib.auth import authenticate
 from django.utils.dateparse import parse_date, parse_time
@@ -23,6 +25,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import BasePermission
 from rest_framework.response import Response
 
+from .authentication import OptionalTokenAuthentication
 from accounts.models import User
 from .models import (
     Appointment,
@@ -57,8 +60,12 @@ from .serializers import (
     MedicalRecordSerializer,
     NutritionEntrySerializer,
     PatientSerializer,
+    PatientSelfSerializer,
+    PatientSelfUpdateSerializer,
     PlanSerializer,
     ProviderListSerializer,
+    ProviderSelfSerializer,
+    ProviderSelfUpdateSerializer,
     RegisterSerializer,
     RoleSerializer,
     SpecialitySerializer,
@@ -323,7 +330,7 @@ def health(request):
 
 
 @api_view(["GET"])
-@authentication_classes([TokenAuthentication, SessionAuthentication])
+@authentication_classes([OptionalTokenAuthentication, SessionAuthentication])
 @permission_classes([AllowAny])
 def doctor_on_call_me(request):
     """
@@ -753,7 +760,7 @@ def auth_password_policy(request):
 
 
 @api_view(["GET"])
-@authentication_classes([TokenAuthentication, SessionAuthentication])
+@authentication_classes([OptionalTokenAuthentication, SessionAuthentication])
 @permission_classes([AllowAny])
 def user_data(request):
     user = request.user
@@ -1674,6 +1681,58 @@ def appointment_create(request):
     return _success({"appointment": AppointmentSerializer(appt).data}, message="Created")
 
 
+@api_view(["GET", "PATCH"])
+@authentication_classes([TokenAuthentication, SessionAuthentication])
+@permission_classes([IsAuthenticated])
+def patient_me(request):
+    """GET|PATCH /api/patients/me/ - patient self-service"""
+    patient = Patient.objects.filter(user=request.user).first()
+    if not patient:
+        return _error({"patient": ["No patient profile found"]}, status.HTTP_404_NOT_FOUND)
+
+    if request.method == "GET":
+        return _success({"patient": PatientSelfSerializer(patient).data})
+
+    ser = PatientSelfUpdateSerializer(data=request.data)
+    if not ser.is_valid():
+        return _error(ser.errors)
+
+    if "whatsapp_number" in ser.validated_data:
+        patient.whatsapp_number = ser.validated_data["whatsapp_number"].strip()[:32]
+        patient.save(update_fields=["whatsapp_number"])
+    return _success({"patient": PatientSelfSerializer(patient).data}, message="Updated")
+
+
+@api_view(["GET", "PATCH"])
+@authentication_classes([TokenAuthentication, SessionAuthentication])
+@permission_classes([IsAuthenticated])
+def provider_me(request):
+    """GET|PATCH /api/providers/me/ - provider self-service (doctor-on-call)"""
+    provider = Provider.objects.filter(user=request.user).first()
+    if not provider:
+        return _error({"provider": ["No provider profile found"]}, status.HTTP_404_NOT_FOUND)
+
+    if request.method == "GET":
+        return _success({"provider": ProviderSelfSerializer(provider, context={"provider": provider}).data})
+
+    ser = ProviderSelfUpdateSerializer(data=request.data)
+    if not ser.is_valid():
+        return _error(ser.errors)
+
+    data = ser.validated_data
+    if "phone_number" in data:
+        new_phone = data["phone_number"].strip()[:64]
+        if new_phone:
+            exists = Provider.objects.exclude(id=provider.id).filter(phone_number=new_phone).exists()
+            if exists:
+                return _error({"phone_number": ["This phone number is already in use"]})
+        provider.phone_number = new_phone
+    if "whatsapp_number" in data:
+        provider.whatsapp_number = data["whatsapp_number"].strip()[:32]
+    provider.save(update_fields=["phone_number", "whatsapp_number"])
+    return _success({"provider": ProviderSelfSerializer(provider, context={"provider": provider}).data}, message="Updated")
+
+
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def vitals_list(request):
@@ -2103,6 +2162,168 @@ def medical_record_detail(request, record_id):
     return _error(ser.errors)
 
 
+def _ollama_bounded_timeouts():
+    try:
+        h = int(getattr(settings, "OLLAMA_HEALTH_TIMEOUT", 5) or 5)
+    except (TypeError, ValueError):
+        h = 5
+    try:
+        g = int(getattr(settings, "OLLAMA_GENERATE_TIMEOUT", 180) or 180)
+    except (TypeError, ValueError):
+        g = 180
+    return max(1, min(h, 120)), max(10, min(g, 7200))
+
+
+def _ollama_base_and_model():
+    base = (getattr(settings, "OLLAMA_BASE_URL", "") or "").strip() or "http://127.0.0.1:11434"
+    model = (getattr(settings, "OLLAMA_MODEL", "") or "").strip() or "llama3.1"
+    return base, model
+
+
+def _truncate_ai_detail(value, limit=420):
+    s = str(value or "").strip()
+    if len(s) <= limit:
+        return s
+    return s[: limit - 1] + "…"
+
+
+def _classify_urllib_issue(exc):
+    r = getattr(exc, "reason", None)
+    if isinstance(r, (socket.timeout, TimeoutError)):
+        return "timeout", "The AI server took too long to respond."
+    if isinstance(r, ConnectionRefusedError):
+        return "connection_refused", "Cannot connect to the AI server (connection refused)."
+    if isinstance(r, OSError) and getattr(r, "errno", None) == errno.ECONNREFUSED:
+        return "connection_refused", "Cannot connect to the AI server (connection refused)."
+    if isinstance(r, socket.gaierror):
+        return "dns_error", "Could not resolve the AI server address."
+    low = str(exc).lower()
+    if "timed out" in low or isinstance(r, TimeoutError):
+        return "timeout", "The AI server took too long to respond."
+    if "refused" in low:
+        return "connection_refused", "Cannot connect to the AI server (connection refused)."
+    if any(x in low for x in ("name or service not known", "nodename nor servname", "getaddrinfo failed")):
+        return "dns_error", "Could not resolve the AI server address."
+    return "connection_error", "Could not reach the AI server."
+
+
+def _ollama_fetch_tag_names(base, timeout_sec):
+    """Return (ok, tag_names, err_code, err_detail)."""
+    url = base.rstrip("/") + "/api/tags"
+    try:
+        req = Request(url, method="GET")
+        with urlopen(req, timeout=timeout_sec) as resp:
+            raw = resp.read().decode("utf-8", errors="ignore")
+        body = json.loads(raw) if raw.strip() else {}
+        models = body.get("models") if isinstance(body, dict) else None
+        names = []
+        if isinstance(models, list):
+            for m in models:
+                if isinstance(m, dict) and m.get("name"):
+                    names.append(str(m["name"]))
+                elif isinstance(m, str):
+                    names.append(m)
+        return True, names, None, None
+    except HTTPError as e:
+        try:
+            chunk = e.read().decode("utf-8", errors="ignore") if e.fp else ""
+        except Exception:
+            chunk = ""
+        tail = _truncate_ai_detail(chunk or str(e.reason or e.code))
+        return False, [], "http_error", f"HTTP {e.code}: {tail}"
+    except URLError as e:
+        code, _ = _classify_urllib_issue(e)
+        return False, [], code, _truncate_ai_detail(str(e.reason or e))
+    except (TimeoutError, socket.timeout):
+        return False, [], "timeout", _truncate_ai_detail("Timed out")
+    except json.JSONDecodeError as e:
+        return False, [], "invalid_response", _truncate_ai_detail(str(e))
+    except Exception as e:
+        return False, [], "unknown", _truncate_ai_detail(str(e))
+
+
+def _configured_model_in_tags(wanted, tag_names):
+    w = (wanted or "").strip().lower()
+    if not w:
+        return False
+    w_base = w.split(":", 1)[0].strip()
+    for n in tag_names:
+        nl = str(n).lower().strip()
+        if nl == w or nl == w_base or nl.startswith(w_base + ":"):
+            return True
+    return False
+
+
+def _ai_assist_fail_response(code, message, detail="", status_code=status.HTTP_502_BAD_GATEWAY):
+    return Response(
+        {
+            "status": "error",
+            "code": code,
+            "message": str(message or "AI assist unavailable"),
+            "detail": _truncate_ai_detail(detail),
+        },
+        status=status_code,
+    )
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def ai_assist_status(request):
+    """Public lightweight check — `GET /api` → Ollama `/api/tags` only (always HTTP 200)."""
+    base, model = _ollama_base_and_model()
+    health_to, gen_to = _ollama_bounded_timeouts()
+    ok, names, err_code, err_detail = _ollama_fetch_tag_names(base, health_to)
+    model_available = ok and _configured_model_in_tags(model, names)
+    if ok and model_available:
+        assist_message = ""
+        ready = True
+    elif ok and not model_available:
+        ready = False
+        assist_message = f"Configured model is not installed in Ollama: {model}"
+    elif not ok:
+        ready = False
+        label = {"timeout": "Ollama did not respond in time.", "dns_error": "Cannot resolve Ollama host."}.get(
+            err_code, "Ollama is not reachable."
+        )
+        hint = err_detail.strip()[:180] if err_detail else ""
+        assist_message = f"{label}{(f' ({hint})' if hint else '')}"
+
+    return _success(
+        {
+            "ai_assist_ready": ready,
+            "assist_message": assist_message,
+            "configured_model": model,
+            "generate_timeout_seconds": gen_to,
+            "health_timeout_seconds": health_to,
+        },
+        message="OK",
+    )
+
+
+@api_view(["GET"])
+@authentication_classes([TokenAuthentication, SessionAuthentication])
+@permission_classes([IsAuthenticated])
+def ollama_status(request):
+    """`GET …/integrations/ollama-status/` — model list + configured model availability (authenticated)."""
+    base, model = _ollama_base_and_model()
+    health_to, gen_to = _ollama_bounded_timeouts()
+    reachable, names, err_code, err_detail = _ollama_fetch_tag_names(base, health_to)
+    model_available = reachable and _configured_model_in_tags(model, names)
+    return _success(
+        {
+            "reachable": reachable,
+            "error_code": err_code,
+            "error_detail": err_detail,
+            "models": names,
+            "configured_model": model,
+            "model_available": model_available,
+            "generate_timeout_seconds": gen_to,
+            "health_timeout_seconds": health_to,
+        },
+        message="OK",
+    )
+
+
 @api_view(["POST"])
 @authentication_classes([TokenAuthentication, SessionAuthentication])
 @permission_classes([IsAuthenticated])
@@ -2117,8 +2338,8 @@ def medical_records_ai_assist(request):
     soap_mode = kind in ("soap", "doctor_soap", "soap_note")
 
     # Call local Ollama (no streaming).
-    base = (getattr(settings, "OLLAMA_BASE_URL", "") or "").strip() or "http://127.0.0.1:11434"
-    model = (getattr(settings, "OLLAMA_MODEL", "") or "").strip() or "llama3.1"
+    base, model = _ollama_base_and_model()
+    _, gen_timeout = _ollama_bounded_timeouts()
     url = base.rstrip("/") + "/api/generate"
 
     if soap_mode:
@@ -2150,12 +2371,22 @@ def medical_records_ai_assist(request):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urlopen(req, timeout=60) as resp:
+        with urlopen(req, timeout=gen_timeout) as resp:
             raw = resp.read().decode("utf-8", errors="ignore")
         out = json.loads(raw) if raw else {}
         answer = str(out.get("response") or "").strip()
+        if isinstance(out.get("error"), str) and out.get("error").strip():
+            return _ai_assist_fail_response(
+                "model_error",
+                "The AI server reported an error running the model.",
+                out.get("error"),
+            )
         if not answer:
-            answer = "No response from model."
+            return _ai_assist_fail_response(
+                "empty_response",
+                "The model returned an empty reply.",
+                _truncate_ai_detail(raw),
+            )
 
         soap_json = {}
         if soap_mode and answer:
@@ -2190,20 +2421,27 @@ def medical_records_ai_assist(request):
             msg = e.read().decode("utf-8", errors="ignore")
         except Exception:
             msg = str(e)
-        return Response(
-            {"status": "error", "message": "Ollama error", "detail": msg},
-            status=status.HTTP_502_BAD_GATEWAY,
-        )
+        detail = _truncate_ai_detail(msg or str(e.reason or e.code))
+        if e.code == 404:
+            return _ai_assist_fail_response(
+                "model_missing",
+                "The configured model may be missing from Ollama.",
+                detail,
+            )
+        return _ai_assist_fail_response("http_error", "The AI server returned an error.", detail)
     except URLError as e:
-        return Response(
-            {"status": "error", "message": "Ollama unreachable", "detail": str(e)},
-            status=status.HTTP_502_BAD_GATEWAY,
+        code, short = _classify_urllib_issue(e)
+        return _ai_assist_fail_response(code, short, _truncate_ai_detail(str(e.reason or e)))
+    except (TimeoutError, socket.timeout):
+        return _ai_assist_fail_response(
+            "timeout",
+            "The AI request timed out.",
+            f"Limit was {gen_timeout}s (OLLAMA_GENERATE_TIMEOUT).",
         )
+    except json.JSONDecodeError as e:
+        return _ai_assist_fail_response("invalid_response", "Could not parse AI response.", _truncate_ai_detail(str(e)))
     except Exception as e:
-        return Response(
-            {"status": "error", "message": "AI error", "detail": str(e)},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
+        return _ai_assist_fail_response("server_error", "AI assist failed.", _truncate_ai_detail(str(e)), status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 HIPAA_DISCLAIMER = (

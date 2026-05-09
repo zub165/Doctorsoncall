@@ -53,13 +53,28 @@ function mkClient(baseURL) {
   });
 
   client.interceptors.request.use((config) => {
-    const token = tokenStore.read();
+    const token = tokenStore.read().trim();
     if (token) {
       config.headers = config.headers ?? {};
       config.headers.Authorization = `Token ${token}`;
+    } else if (config.headers?.Authorization) {
+      delete config.headers.Authorization;
     }
     return config;
   });
+
+  client.interceptors.response.use(
+    (r) => r,
+    (err) => {
+      const status = err?.response?.status;
+      const url = String(err?.config?.url || '');
+      // Login failures must not wipe a previous session accidentally.
+      if (status === 401 && tokenStore.read().trim() && !url.includes('auth/login')) {
+        tokenStore.clear();
+      }
+      return Promise.reject(err);
+    },
+  );
 
   return client;
 }
@@ -96,6 +111,10 @@ export const ApiPaths = {
   registrationsPending: 'registrations/pending/',
   registrationsApprove: 'registrations/approve/',
   replicateToken: 'integrations/replicate-token/',
+  /** Public: Ollama `/api/tags` ping only (always 200 when Django responds). */
+  aiAssistStatus: 'integrations/ai-assist-status/',
+  /** Authenticated: model list + `model_available`. */
+  ollamaStatus: 'integrations/ollama-status/',
   myAppointments: 'appointments/mine/',
   allAppointments: 'appointments/all/',
   storeAppointment: 'appointments/',
@@ -120,4 +139,36 @@ export const ApiPaths = {
   ocrImage: 'ocr/image/',
   ocrPdf: 'ocr/pdf/',
 };
+
+/**
+ * Opens WhatsApp to a number via [wa.me](https://developers.facebook.com/docs/whatsapp) (click-to-chat).
+ * Not the same as WhatsApp Web pairing at [web.whatsapp.com](https://web.whatsapp.com/), which is desktop login only.
+ *
+ * @param {string} phoneRaw  E.164 or digits, e.g. +14155552671
+ * @param {string} [message] Prefilled first message
+ */
+/** Parse `POST …/ai-assist/` failure body `{ code, message, detail }`. */
+export function parseAiAssistError(err) {
+  const d = err?.response?.data;
+  const code = (d?.code ?? '').toString();
+  const message = (
+    d?.message ||
+    d?.detail ||
+    err?.message ||
+    'AI request failed.'
+  ).toString();
+  const detail = (d?.detail ?? '').toString();
+  return { code, message, detail };
+}
+
+export function buildWhatsAppMeUrl(phoneRaw, message) {
+  const n = String(phoneRaw || '')
+    .trim()
+    .replace(/\s+/g, '');
+  if (!n) return '';
+  const digits = n.startsWith('+') ? n.slice(1).replace(/\D/g, '') : n.replace(/\D/g, '');
+  if (!digits) return '';
+  const text = encodeURIComponent(message || 'Hello Doctor On Call, I need assistance.');
+  return `https://wa.me/${digits}?text=${text}`;
+}
 

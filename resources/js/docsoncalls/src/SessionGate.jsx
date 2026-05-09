@@ -2,6 +2,14 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, ApiPaths, tokenStore } from './api.js';
 
+/** Django `{ status, data }` envelopes → inner `data` for routing. */
+function unwrapEnvelope(payload) {
+  if (payload && payload.status === 'success' && payload.data != null && typeof payload.data === 'object') {
+    return payload.data;
+  }
+  return payload || {};
+}
+
 function getRoleFromMe(me) {
   const v =
     (me && (me.role ?? me.portal ?? me.user_role))?.toString()?.toLowerCase()?.trim() ||
@@ -38,7 +46,18 @@ export function SessionGate() {
 
       try {
         const { data } = await api.get(ApiPaths.docOnCallMe);
-        const role = getRoleFromMe(data);
+        const body = unwrapEnvelope(data);
+        const role = getRoleFromMe(body);
+        const stillHasToken = tokenStore.read().trim();
+        // Stale/invalid Token used to yield HTTP 401; with optional-token endpoints it yields guest —
+        // still clear storage so protected routes recover cleanly.
+        if (stillHasToken && body?.is_authenticated === false) {
+          tokenStore.clear();
+          if (!alive) return;
+          setState({ loading: false, error: '' });
+          nav('/login', { replace: true });
+          return;
+        }
         const idx = initialTabIndex(role);
         if (!alive) return;
         setState({ loading: false, error: '' });

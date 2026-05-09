@@ -38,7 +38,7 @@ export function Register() {
       const { data } = await api.post(ApiPaths.authRegister, payload);
       const token =
         (data && (data.token ?? data.key ?? data.auth_token))?.toString()?.trim() || '';
-      if (token) tokenStore.write(token);
+      if (token) tokenStore.write(String(token).trim());
       nav('/', { replace: true });
     } catch (err) {
       setState({ loading: false, error: errMessage(err) });

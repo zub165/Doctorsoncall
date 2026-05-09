@@ -35,7 +35,7 @@ export function Login() {
         (data && (data.data?.token ?? data.token ?? data.key ?? data.auth_token))?.toString()?.trim() ||
         '';
       if (!token) throw new Error('No token returned');
-      tokenStore.write(token);
+      tokenStore.write(token.trim());
       nav('/', { replace: true });
     } catch (err) {
       setState({

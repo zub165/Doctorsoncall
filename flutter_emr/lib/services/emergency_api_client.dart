@@ -40,7 +40,8 @@ class EmergencyApiClient {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) async {
-          final token = await tokenRepo.readToken();
+          final raw = await tokenRepo.readToken();
+          final token = raw?.trim();
           if (token != null && token.isNotEmpty) {
             options.headers['Authorization'] = ApiHeaders.authorizationToken(token);
           }

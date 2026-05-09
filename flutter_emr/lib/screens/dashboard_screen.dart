@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import '../config/api_config.dart';
+import '../services/auth_api.dart';
 import '../services/emergency_api_client.dart';
 import '../theme/app_theme.dart';
 import '../services/health_api.dart';
@@ -73,12 +74,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
       });
     } on DioException catch (e) {
       if (!mounted) return;
+      final code = e.response?.statusCode;
+      if (code == 401) {
+        await AuthApi(widget.apiClient).logout();
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute<void>(
+            builder: (_) =>
+                LoginScreen(apiClientOverride: widget.apiClient),
+          ),
+        );
+        return;
+      }
       setState(() {
         _profileInner = null;
         _guest = false;
-        _loadError = e.response?.statusCode == 401
-            ? 'Unauthorized (check Token header)'
-            : (e.message ?? 'Failed to load ${ApiConfig.userMePath}');
+        _loadError =
+            e.message ?? 'Failed to load ${ApiConfig.userMePath}';
       });
     }
   }
