@@ -7,7 +7,7 @@ import { Placeholder } from './screens/Placeholder.jsx';
 import { Appointments } from './screens/Appointments.jsx';
 import { BookAppointment } from './screens/BookAppointment.jsx';
 import { Feedback } from './screens/Feedback.jsx';
-import { MedicalRecords } from './screens/MedicalRecords.jsx';
+import { MedicalRecords, formatAiAssistReadable } from './screens/MedicalRecords.jsx';
 
 const TITLES = [
   'Dashboard',
@@ -387,20 +387,36 @@ function OsmTriage() {
   );
 }
 
+function medlinePlusSearchUrl(query) {
+  const t = String(query || '').trim();
+  return `https://medlineplus.gov/search.html?q=${encodeURIComponent(t)}`;
+}
+
+function extractCoursesList(payload) {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload.courses)) return payload.courses;
+  if (Array.isArray(payload.results)) return payload.results;
+  // Django EMR: { status: "success", data: { courses: [...] } }
+  const inner = payload.data;
+  if (inner && typeof inner === 'object') {
+    if (Array.isArray(inner.courses)) return inner.courses;
+    if (Array.isArray(inner.results)) return inner.results;
+  }
+  return [];
+}
+
 function Courses() {
-  const [tab, setTab] = React.useState('education'); // education | courses | maintenance
-  const [q, setQ] = React.useState('');
+  const [tab, setTab] = React.useState('courses'); // education | courses | maintenance
+  const [educationQ, setEducationQ] = React.useState('');
+  const [courseFilter, setCourseFilter] = React.useState('');
   const s = useApiCall(() => api.get(ApiPaths.coursesV1).then((r) => r.data), []);
-  const itemsAll = React.useMemo(() => {
-    const x = s.data;
-    const arr = Array.isArray(x) ? x : x?.results || x?.data || [];
-    return Array.isArray(arr) ? arr : [];
-  }, [s.data]);
+  const itemsAll = React.useMemo(() => extractCoursesList(s.data), [s.data]);
   const items = React.useMemo(() => {
-    const qq = q.trim().toLowerCase();
+    const qq = courseFilter.trim().toLowerCase();
     if (!qq) return itemsAll;
     return itemsAll.filter((c) => JSON.stringify(c || {}).toLowerCase().includes(qq));
-  }, [itemsAll, q]);
+  }, [itemsAll, courseFilter]);
 
   return (
     <div className="dc-row" style={{ gap: 14 }}>
@@ -432,8 +448,28 @@ function Courses() {
           <div style={{ fontWeight: 950, fontSize: 18 }}>Patient education (MedlinePlus)</div>
           <div className="dc-card" style={{ padding: 16 }}>
             <div style={{ display: 'flex', gap: 12 }}>
-              <input className="dc-input" placeholder="Search topic" value={q} onChange={(e) => setQ(e.target.value)} />
-              <button className="dc-btn dc-btn-primary" type="button" style={{ fontWeight: 950 }}>
+              <input
+                className="dc-input"
+                placeholder="Search topic"
+                value={educationQ}
+                onChange={(e) => setEducationQ(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const t = educationQ.trim();
+                    if (t) window.open(medlinePlusSearchUrl(t), '_blank', 'noopener,noreferrer');
+                  }
+                }}
+              />
+              <button
+                className="dc-btn dc-btn-primary"
+                type="button"
+                style={{ fontWeight: 950 }}
+                onClick={() => {
+                  const t = educationQ.trim();
+                  if (!t) return;
+                  window.open(medlinePlusSearchUrl(t), '_blank', 'noopener,noreferrer');
+                }}
+              >
                 Search
               </button>
             </div>
@@ -447,7 +483,7 @@ function Courses() {
           <div style={{ fontWeight: 950, fontSize: 18 }}>Preventive care courses</div>
           <div style={{ color: 'var(--dc-muted)', fontWeight: 800 }}>Common topics patients need for prevention and wellness.</div>
           <div className="dc-card" style={{ padding: 14 }}>
-            <input className="dc-input" placeholder="Search…" value={q} onChange={(e) => setQ(e.target.value)} />
+            <input className="dc-input" placeholder="Search…" value={courseFilter} onChange={(e) => setCourseFilter(e.target.value)} />
           </div>
 
           {s.loading ? (
@@ -460,7 +496,7 @@ function Courses() {
             </div>
           ) : items.length === 0 ? (
             <div className="dc-card" style={{ color: 'var(--dc-muted)' }}>
-              No courses returned.
+              {itemsAll.length === 0 ? 'No courses returned.' : 'No courses match your search.'}
             </div>
           ) : (
             <div className="dc-row" style={{ gap: 12 }}>
@@ -708,6 +744,9 @@ function maintenancePlan(age) {
   };
 }
 
+const AI_ASSISTANT_INTRO =
+  "Hi! I'm your AI medical assistant.\n\nI can help with basic symptoms and next steps, but I'm not a doctor.\nIf you have severe symptoms (trouble breathing, chest pain, fainting, severe bleeding, stroke signs), call emergency services immediately.";
+
 function AiAssistant() {
   const [msg, setMsg] = React.useState('');
   const [busy, setBusy] = React.useState(false);
@@ -800,6 +839,7 @@ function AiAssistant() {
     try {
       localStorage.removeItem(STORAGE_KEY);
     } catch {}
+    setMsg('');
   }
 
   function triageInstantReply(text) {
@@ -867,12 +907,18 @@ function AiAssistant() {
         setHistory((h) => [...h, { role: 'assistant', text: instant }]);
       }
 
-      const { data } = await api.post(ApiPaths.medicalRecordsAiAssist, { query: t });
-      const reply =
-        (data && (data.message || data.detail || data.answer || data.response)) ||
-        (typeof data === 'string' ? data : '') ||
-        JSON.stringify(data, null, 2);
-      setHistory((h) => [...h, { role: 'assistant', text: reply.toString() }]);
+      const { data } = await api.post(ApiPaths.medicalRecordsAiAssist, {
+        query: t,
+        kind: 'patient_summary',
+      });
+      let reply = formatAiAssistReadable(data);
+      if (!reply || !String(reply).trim()) {
+        reply =
+          (data && (data.message || data.detail || data.answer || data.response)) ||
+          (typeof data === 'string' ? data : '') ||
+          (data ? JSON.stringify(data, null, 2) : 'No response.');
+      }
+      setHistory((h) => [...h, { role: 'assistant', text: String(reply) }]);
     } catch (err) {
       const code = err?.response?.status;
       const serverMsg =
@@ -898,9 +944,24 @@ function AiAssistant() {
   return (
     <div className="dc-row" style={{ gap: 14 }}>
       <div className="dc-appbar">
-        <div className="dc-appbar-title">
-          <h2>AI assistant</h2>
-          <span style={{ opacity: 0.9, fontWeight: 900 }}>☰</span>
+        <div
+          className="dc-appbar-title"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            width: '100%',
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <h2 style={{ margin: 0 }}>AI assistant</h2>
+            <span style={{ opacity: 0.9, fontWeight: 900 }}>☰</span>
+          </div>
+          <button type="button" className="dc-btn" onClick={clearChat} style={{ fontWeight: 800, flexShrink: 0 }}>
+            Clear chat
+          </button>
         </div>
       </div>
 
@@ -963,8 +1024,14 @@ function AiAssistant() {
             placeholder="Send a message"
             value={msg}
             onChange={(e) => setMsg(e.target.value)}
-            onKeyDown={(e) => (e.key === 'Enter' ? send() : null)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                send();
+              }
+            }}
             disabled={busy}
+            style={{ flex: '1 1 auto', minWidth: 0, width: 'auto' }}
           />
           <button
             className="dc-btn"
@@ -976,8 +1043,15 @@ function AiAssistant() {
           >
             {rec.listening ? '🎙️ Stop' : '🎙️'}
           </button>
-          <button className="dc-btn dc-btn-primary" type="button" onClick={send} disabled={busy} style={{ fontWeight: 950 }}>
-            {busy ? '…' : '▶'}
+          <button
+            className="dc-btn dc-btn-primary"
+            type="button"
+            onClick={send}
+            disabled={busy}
+            aria-label="Send message"
+            style={{ fontWeight: 950, flex: '0 0 auto', flexShrink: 0, whiteSpace: 'nowrap', padding: '10px 16px' }}
+          >
+            {busy ? '…' : 'Send'}
           </button>
         </div>
         {rec.listening || rec.interim || rec.error ? (
@@ -1088,18 +1162,31 @@ function SoapNotes() {
     }
   }
 
+  function pickSoapLines(v) {
+    if (v == null) return '';
+    if (Array.isArray(v)) return v.filter(Boolean).map(String).join('\n');
+    return String(v);
+  }
+
+  /** Backend-normalized `structured` / legacy SOAP JSON from Django. */
+  function soapFromStructured(st) {
+    if (!st || typeof st !== 'object') return null;
+    if (st.subjective == null && st.objective == null && st.assessment == null && st.plan == null) return null;
+    return {
+      s: pickSoapLines(st.subjective),
+      o: pickSoapLines(st.objective),
+      a: pickSoapLines(st.assessment),
+      p: pickSoapLines(st.plan),
+    };
+  }
+
   async function aiAssist() {
     const text = raw.trim();
     if (!text) return;
     setAi({ loading: true, error: '' });
     try {
-      const prompt = `Convert the following clinician dictation into a SOAP note.
-Return STRICT JSON with keys: subjective, objective, assessment, plan.
-No markdown, no extra keys.
-
-DICTATION:\n${text}`;
       const { data } = await api.post(ApiPaths.medicalRecordsAiAssist, {
-        query: prompt,
+        query: text,
         kind: 'soap',
       });
       const inner = unwrapAiAssist(data);
@@ -1112,10 +1199,15 @@ DICTATION:\n${text}`;
           p: String(sk.plan ?? ''),
         });
       } else {
-        const answer = String(inner?.answer ?? inner?.summary ?? '').trim();
-        const parsed = parseSoapFromText(answer);
-        if (parsed) setSoap(parsed);
-        else setSoap({ s: answer, o: '', a: '', p: '' });
+        const fromStruct = soapFromStructured(inner?.structured);
+        if (fromStruct) {
+          setSoap(fromStruct);
+        } else {
+          const answer = String(inner?.summary ?? '').trim();
+          const parsed = parseSoapFromText(answer);
+          if (parsed) setSoap(parsed);
+          else setSoap({ s: answer, o: '', a: '', p: '' });
+        }
       }
       setAi({ loading: false, error: '' });
     } catch (err) {
@@ -1179,15 +1271,108 @@ DICTATION:\n${text}`;
 }
 
 function DoctorVisit() {
+  const nav = useNavigate();
+  const fileInputRef = React.useRef(null);
+  const videoRef = React.useRef(null);
+  const mediaStreamRef = React.useRef(null);
+
   const [latest, setLatest] = React.useState({ loading: true, error: '', record: null });
   const [wa, setWa] = React.useState({ loading: true, number: '' });
+  const [toolHint, setToolHint] = React.useState('');
+  const [mediaBusy, setMediaBusy] = React.useState(false);
+  /** null | 'video' | 'audio' — live browser capture */
+  const [previewKind, setPreviewKind] = React.useState(null);
+
+  function stopMediaTracks() {
+    try {
+      mediaStreamRef.current?.getTracks?.()?.forEach((t) => t.stop());
+    } catch {
+      /* ignore */
+    }
+    mediaStreamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setPreviewKind(null);
+    setMediaBusy(false);
+    setToolHint('');
+  }
+
+  React.useEffect(() => {
+    return () => stopMediaTracks();
+  }, []);
+
+  React.useEffect(() => {
+    if (previewKind === 'video' && videoRef.current && mediaStreamRef.current) {
+      videoRef.current.srcObject = mediaStreamRef.current;
+    }
+  }, [previewKind]);
+
+  async function startMedia(kind) {
+    stopMediaTracks();
+    setToolHint(kind === 'video' ? 'Requesting camera and microphone…' : 'Requesting microphone…');
+    setMediaBusy(true);
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setToolHint('Your browser cannot access the camera/microphone from this page.');
+        return;
+      }
+      const constraints =
+        kind === 'video'
+          ? { video: { facingMode: 'user' }, audio: true }
+          : { video: false, audio: true };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      mediaStreamRef.current = stream;
+      setPreviewKind(kind);
+      setToolHint(
+        kind === 'video'
+          ? 'Preview active — tap Stop when finished (ends camera access).'
+          : 'Microphone active — tap Stop when finished.',
+      );
+    } catch (e) {
+      const name = e?.name || '';
+      const msg = e?.message || String(e);
+      if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+        setToolHint('Permission denied — allow camera/microphone in the browser address bar, then try again.');
+      } else if (name === 'NotFoundError') {
+        setToolHint('No camera/microphone found on this device.');
+      } else {
+        setToolHint(`Could not start: ${msg}`);
+      }
+    } finally {
+      setMediaBusy(false);
+    }
+  }
+
+  function onUploadPicked(e) {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    setToolHint(`Selected file: ${f.name} (${Math.round(f.size / 1024)} KB). Link this upload to your EMR workflow from Medical records.`);
+  }
+
+  function exportTextRecord() {
+    const rec = latest.record;
+    const body = rec ? JSON.stringify(rec, null, 2) : 'No record loaded — open Medical records & AI to create data.';
+    const blob = new Blob([body], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `doctor-visit-record-${new Date().toISOString().slice(0, 10)}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setToolHint('Downloaded text export.');
+  }
+
+  function exportPdfHint() {
+    setToolHint('Tip: use Export text, then print the file and choose “Save as PDF”, or use the browser Print dialog on Medical records.');
+  }
+
   const tools = [
-    { label: 'Video', icon: '🎥' },
-    { label: 'Audio', icon: '🎧' },
-    { label: 'Upload', icon: '📎' },
-    { label: 'Import', icon: '⬇️' },
-    { label: 'Export PDF', icon: '🧾' },
-    { label: 'Export text', icon: '📝' },
+    { label: 'Video', icon: '🎥', onClick: () => startMedia('video') },
+    { label: 'Audio', icon: '🎧', onClick: () => startMedia('audio') },
+    { label: 'Upload', icon: '📎', onClick: () => fileInputRef.current?.click() },
+    { label: 'Import', icon: '⬇️', onClick: () => nav('/shell/17') },
+    { label: 'Export PDF', icon: '🧾', onClick: exportPdfHint },
+    { label: 'Export text', icon: '📝', onClick: exportTextRecord },
   ];
 
   async function refreshLatest() {
@@ -1267,9 +1452,49 @@ function DoctorVisit() {
 
       <div className="dc-card" style={{ padding: 16 }}>
         <div style={{ fontWeight: 950, marginBottom: 12 }}>Visit tools</div>
+        <div style={{ color: 'var(--dc-muted)', fontWeight: 700, fontSize: 13, marginBottom: 12 }}>
+          Video/Audio use your browser camera and microphone (you may see a permission prompt — that is normal). Upload picks a file locally; Import opens Medical records.
+        </div>
+        {toolHint ? (
+          <div className="dc-card" style={{ marginBottom: 12, padding: 12, background: '#f8fafc', fontWeight: 800, fontSize: 14 }}>
+            {toolHint}
+            {previewKind ? (
+              <button type="button" className="dc-btn dc-btn-danger" style={{ marginLeft: 12, fontWeight: 900 }} onClick={stopMediaTracks}>
+                Stop
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {previewKind === 'video' ? (
+          <div style={{ marginBottom: 12 }}>
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              style={{ width: '100%', maxHeight: 280, borderRadius: 12, background: '#111' }}
+            />
+          </div>
+        ) : null}
+        {previewKind === 'audio' ? (
+          <div className="dc-card" style={{ marginBottom: 12, padding: 16, textAlign: 'center', fontWeight: 900 }}>
+            🎙️ Microphone session active (audio-only — no camera).
+          </div>
+        ) : null}
+        <input ref={fileInputRef} type="file" style={{ display: 'none' }} accept="image/*,.pdf,.txt" onChange={onUploadPicked} />
         <div className="dc-grid-2">
           {tools.map((t) => (
-            <button key={t.label} className="dc-btn dc-btn-primary" type="button" style={{ padding: 14, borderRadius: 16, fontWeight: 950 }}>
+            <button
+              key={t.label}
+              className="dc-btn dc-btn-primary"
+              type="button"
+              style={{ padding: 14, borderRadius: 16, fontWeight: 950 }}
+              disabled={mediaBusy}
+              onClick={() => {
+                setToolHint('');
+                t.onClick();
+              }}
+            >
               {t.icon} {t.label}
             </button>
           ))}
@@ -1844,8 +2069,14 @@ function ChangePassword() {
 }
 
 function ClientHub() {
+  const loc = useLocation();
   const [tab, setTab] = React.useState('home'); // home | profile | plan
   const me = useApiCall(() => api.get(ApiPaths.docOnCallMe).then((r) => r.data), []);
+
+  React.useEffect(() => {
+    const q = new URLSearchParams(loc.search || '').get('tab');
+    if (q === 'home' || q === 'profile' || q === 'plan') setTab(q);
+  }, [loc.search]);
   const appts = useApiCall(() => api.get(ApiPaths.myAppointments).then((r) => r.data), []);
   const invoices = useApiCall(() => api.get(ApiPaths.invoices).then((r) => r.data), []);
   const vitals = useApiCall(() => api.get(ApiPaths.vitals).then((r) => r.data), []);
@@ -2037,7 +2268,7 @@ function ClientHub() {
             <Link className="dc-action" to="/shell/17">
               🧠 Medical records
             </Link>
-            <Link className="dc-action" to="/shell/11">
+            <Link className="dc-action" to="/shell/14?tab=plan">
               🧾 Billing & invoices
             </Link>
             <Link className="dc-action" to="/shell/13">

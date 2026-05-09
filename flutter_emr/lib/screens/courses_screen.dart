@@ -6,6 +6,7 @@ import 'package:xml/xml.dart';
 import '../services/catalog_api.dart';
 import '../services/emergency_api_client.dart';
 import '../theme/app_theme.dart';
+import '../utils/api_envelope.dart';
 import '../widgets/api_access_placeholder.dart';
 
 /// Patient Education (online medical resources) + legacy `GET /api/v1/courses/`.
@@ -34,7 +35,49 @@ class _CoursesScreenState extends State<CoursesScreen> {
   }
 
   void _reloadCourses() {
-    setState(() => _coursesFuture = _api.courses());
+    setState(() {
+      _coursesFuture = _api.courses();
+    });
+  }
+
+  /// Normalizes `GET /api/v1/courses/` (envelope or plain) into rows + optional API error text.
+  (List<Map<String, dynamic>>, String?) _parseCoursesPayload(dynamic data) {
+    if (data == null) {
+      return (const [], null);
+    }
+    if (data is! Map) {
+      return (const [], 'Unexpected response from server.');
+    }
+    final root = Map<String, dynamic>.from(data);
+    final err = root['status']?.toString();
+    if (err == 'error') {
+      return (
+        const [],
+        ApiEnvelope.errorMessage(root) ?? 'Could not load courses.',
+      );
+    }
+    Map<String, dynamic> payload = root;
+    if (ApiEnvelope.isSuccess(root)) {
+      final d = ApiEnvelope.dataMap(root);
+      if (d != null) {
+        payload = d;
+      } else {
+        return (const [], ApiEnvelope.errorMessage(root));
+      }
+    } else if (root['data'] is Map) {
+      payload = Map<String, dynamic>.from(root['data'] as Map);
+    }
+    final listRaw = payload['courses'] ?? payload['results'];
+    if (listRaw is! List) {
+      return (const [], null);
+    }
+    final out = <Map<String, dynamic>>[];
+    for (final e in listRaw) {
+      if (e is Map) {
+        out.add(Map<String, dynamic>.from(e));
+      }
+    }
+    return (out, null);
   }
 
   Future<void> _searchEducation() async {
@@ -122,8 +165,10 @@ class _CoursesScreenState extends State<CoursesScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Drawer label is "Courses" — open the Courses tab first (not MedlinePlus Education).
     return DefaultTabController(
       length: 3,
+      initialIndex: 1,
       child: Column(
         children: [
           Container(
@@ -238,7 +283,9 @@ class _CoursesScreenState extends State<CoursesScreen> {
       color: AppColors.primary,
       onRefresh: () async {
         final f = _api.courses();
-        setState(() => _coursesFuture = f);
+        setState(() {
+          _coursesFuture = f;
+        });
         await f;
       },
       child: FutureBuilder<dynamic>(
@@ -265,11 +312,9 @@ class _CoursesScreenState extends State<CoursesScreen> {
               ],
             );
           }
-          final data = snap.data;
-          final root = data is Map ? data : const {};
-          final payload = (root['data'] is Map ? root['data'] as Map : root);
-          final listRaw = payload['courses'] ?? payload['results'] ?? const [];
-          final courses = listRaw is List ? listRaw.whereType<Map>().toList() : const <Map>[];
+          final parsed = _parseCoursesPayload(snap.data);
+          final courses = parsed.$1;
+          final apiErr = parsed.$2;
 
           return ListView(
             physics: const AlwaysScrollableScrollPhysics(),
@@ -289,10 +334,26 @@ class _CoursesScreenState extends State<CoursesScreen> {
                     ),
               ),
               const SizedBox(height: 14),
-              if (courses.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.only(top: 24),
-                  child: Center(child: Text('No courses available yet.')),
+              if (apiErr != null && courses.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: Text(
+                    apiErr,
+                    style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                )
+              else if (courses.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 24),
+                  child: Center(
+                    child: Text(
+                      'No courses loaded. Pull to refresh.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Colors.grey.shade700,
+                          ),
+                    ),
+                  ),
                 )
               else
                 ...courses.map((c) {

@@ -683,10 +683,11 @@ Chief complaint, History, Medications, Allergies, Labs/Imaging, Assessment/Plan.
 DOCUMENT OCR:
 $text
 ''';
-      final res = await widget.api.aiAssist(query: prompt);
-      final summary = (res['summary'] ?? res['answer'] ?? res['response'] ?? res)
-          .toString()
-          .trim();
+      final res = await widget.api.aiAssist(
+        query: prompt,
+        kind: 'doctor_summary',
+      );
+      final summary = _primaryAiAssistText(Map<String, dynamic>.from(res));
 
       final now = DateTime.now();
       final id = 'local-doc-${now.millisecondsSinceEpoch}';
@@ -1122,9 +1123,12 @@ Chief complaint, History, Medications, Allergies, Labs/Imaging, Assessment/Plan.
 RECORD:
 $fetched
 ''';
-        final res = await widget.api.aiAssist(query: prompt);
-        aiSummary = (res['summary'] ?? res['answer'] ?? res['response'] ?? res)
-            .toString();
+        final res = await widget.api.aiAssist(
+          query: prompt,
+          kind: 'doctor_summary',
+        );
+        aiSummary =
+            _primaryAiAssistText(Map<String, dynamic>.from(res));
       } catch (e) {
         err = e.toString();
       } finally {
@@ -1345,7 +1349,9 @@ $fetched
       color: AppColors.primary,
       onRefresh: () async {
         final n = widget.api.listRecords();
-        setState(() => _future = n);
+        setState(() {
+          _future = n;
+        });
         await n;
       },
       child: FutureBuilder<List<MedicalRecord>>(
@@ -1694,12 +1700,11 @@ class _CreateMedicalRecordScreenState extends State<_CreateMedicalRecordScreen> 
         ..writeln('Labs: ${_labs.map((m) => m['name'] ?? m.toString()).join(', ')}')
         ..writeln('Imaging: ${_imaging.map((m) => m['name'] ?? m.toString()).join(', ')}');
 
-      final res = await widget.api.aiAssist(query: prompt.toString());
-      final summary = res['summary']?.toString() ??
-          res['answer']?.toString() ??
-          res['text']?.toString() ??
-          res.toString();
-      _notes.text = summary;
+      final res = await widget.api.aiAssist(
+        query: prompt.toString(),
+        kind: 'doctor_summary',
+      );
+      _notes.text = _primaryAiAssistText(Map<String, dynamic>.from(res));
     } on DioException catch (e) {
       setState(() => _aiError = e.message ?? 'AI request failed');
     } catch (e) {
@@ -1975,6 +1980,69 @@ class _MapChips extends StatelessWidget {
   }
 }
 
+/// Formats `/medical-records/ai-assist/` payload (patient or doctor structured JSON).
+String _formatAiAssistResponseBody(Map<String, dynamic> res) {
+  final summary = (res['summary'] ?? '').toString().trim();
+  final kind = (res['kind'] ?? '').toString();
+  final structured = res['structured'];
+  if (structured is Map) {
+    final m = Map<String, dynamic>.from(structured);
+    if (m.containsKey('text') && m.length == 1) {
+      final t = (m['text'] ?? '').toString().trim();
+      if (t.isNotEmpty) return t;
+    }
+    String sectionLines(String title, String key) {
+      final v = m[key];
+      if (v == null) return '';
+      final parts = v is List
+          ? v.map((e) => e.toString()).where((s) => s.trim().isNotEmpty).toList()
+          : [v.toString().trim()].where((s) => s.isNotEmpty).toList();
+      if (parts.isEmpty) return '';
+      final b = StringBuffer()..writeln(title);
+      for (final p in parts) {
+        b.writeln('• $p');
+      }
+      b.writeln();
+      return b.toString();
+    }
+
+    final patientBits = [
+      sectionLines('Summary', 'summary_bullets'),
+      sectionLines('Next steps', 'next_steps'),
+      sectionLines('Warnings', 'warnings'),
+    ].where((s) => s.isNotEmpty).join();
+
+    if (kind == 'patient_summary' || m.containsKey('summary_bullets')) {
+      if (patientBits.isNotEmpty) return patientBits.trim();
+    }
+
+    final doctorBits = [
+      sectionLines('HPI', 'hpi'),
+      sectionLines('Key findings', 'key_findings'),
+      sectionLines('Assessment', 'assessment'),
+      sectionLines('Plan', 'plan'),
+      sectionLines('Red flags', 'red_flags'),
+    ].where((s) => s.isNotEmpty).join();
+
+    if (kind == 'doctor_summary' || m.containsKey('hpi') || m.containsKey('key_findings')) {
+      if (doctorBits.isNotEmpty) return doctorBits.trim();
+    }
+  }
+  if (summary.isNotEmpty) return summary;
+  return '';
+}
+
+/// Prefer formatted structured sections; fall back to raw `summary` / legacy keys.
+String _primaryAiAssistText(Map<String, dynamic> res) {
+  final fromStructured = _formatAiAssistResponseBody(res);
+  if (fromStructured.isNotEmpty) return fromStructured;
+  final s = (res['summary'] ?? res['answer'] ?? res['response'] ?? '')
+      .toString()
+      .trim();
+  if (s.isNotEmpty) return s;
+  return res.toString();
+}
+
 class _AiAssistantTab extends StatefulWidget {
   const _AiAssistantTab({required this.api});
 
@@ -1996,6 +2064,21 @@ class _AiAssistantTabState extends State<_AiAssistantTab> {
     super.dispose();
   }
 
+  Widget _buildAiResponseCard(ThemeData theme) {
+    final body = _formatAiAssistResponseBody(
+      Map<String, dynamic>.from(_last!),
+    );
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: SelectableText(
+          body.isEmpty ? 'No text returned.' : body,
+          style: theme.textTheme.bodyMedium,
+        ),
+      ),
+    );
+  }
+
   Future<void> _send() async {
     final q = _controller.text.trim();
     if (q.isEmpty) return;
@@ -2004,7 +2087,10 @@ class _AiAssistantTabState extends State<_AiAssistantTab> {
       _error = null;
     });
     try {
-      final res = await widget.api.aiAssist(query: q);
+      final res = await widget.api.aiAssist(
+        query: q,
+        kind: 'patient_summary',
+      );
       setState(() => _last = res);
     } on DioException catch (e) {
       if (e.response?.statusCode == 401) {
@@ -2047,7 +2133,7 @@ class _AiAssistantTabState extends State<_AiAssistantTab> {
                 Expanded(
                   child: Text(
                     'AI responses are informational only — not a diagnosis. '
-                    'Always follow your clinician’s advice. Backend must implement **`POST …/medical-records/ai-assist/`**.',
+                    'Always follow your clinician’s advice.',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: Colors.deepPurple.shade900,
                     ),
@@ -2097,37 +2183,7 @@ class _AiAssistantTabState extends State<_AiAssistantTab> {
             ),
           ),
           const SizedBox(height: 8),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (_last!['summary'] != null)
-                    Text(
-                      _last!['summary'].toString(),
-                      style: theme.textTheme.bodyMedium,
-                    ),
-                  if (_last!['suggestions'] is List) ...[
-                    const SizedBox(height: 12),
-                    Text('Suggestions', style: theme.textTheme.labelLarge),
-                    ...(_last!['suggestions'] as List).map(
-                      (s) => Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('• '),
-                            Expanded(child: Text(s.toString())),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
+          _buildAiResponseCard(theme),
         ],
       ],
     );

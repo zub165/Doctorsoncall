@@ -37,7 +37,9 @@ export function Register() {
       };
       const { data } = await api.post(ApiPaths.authRegister, payload);
       const token =
-        (data && (data.token ?? data.key ?? data.auth_token))?.toString()?.trim() || '';
+        (data &&
+          (data.data?.token ?? data.token ?? data.key ?? data.auth_token))?.toString()?.trim() ||
+        '';
       if (token) tokenStore.write(String(token).trim());
       nav('/', { replace: true });
     } catch (err) {

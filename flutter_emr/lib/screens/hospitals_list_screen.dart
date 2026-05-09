@@ -27,17 +27,63 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
   late final CatalogApi _emrApi = CatalogApi(widget.apiClient);
   late Future<HospitalsListResult> _future;
 
+  /// Last GPS position used for `GET …/hospitals/?lat=&lon=` (also EMR fallback).
+  double? _geoLat;
+  double? _geoLon;
+  LatLng? _userLatLng;
+
   @override
   void initState() {
     super.initState();
-    _future = _api.loadHospitalsList();
+    _future = _loadHospitals();
+  }
+
+  Future<HospitalsListResult> _loadHospitals() async {
+    final pos = await _tryCurrentPosition();
+    if (pos != null) {
+      _geoLat = pos.latitude;
+      _geoLon = pos.longitude;
+      if (mounted) {
+        setState(() {
+          _userLatLng = LatLng(pos.latitude, pos.longitude);
+        });
+      }
+      return _api.loadHospitalsList(lat: pos.latitude, lon: pos.longitude);
+    }
+    _geoLat = null;
+    _geoLon = null;
+    return _api.loadHospitalsList();
+  }
+
+  Future<Position?> _tryCurrentPosition() async {
+    try {
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        return null;
+      }
+      final enabled = await Geolocator.isLocationServiceEnabled();
+      if (!enabled) return null;
+      return Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+        ),
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   String _searchQuery = '';
   int _filter = 0; // 0=All, 1=Emergency Room, 2=Urgent Care
 
   void _reload() {
-    setState(() => _future = _api.loadHospitalsList());
+    setState(() {
+      _future = _loadHospitals();
+    });
   }
 
   @override
@@ -96,8 +142,10 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
           child: RefreshIndicator(
             color: AppColors.primary,
             onRefresh: () async {
-              final next = _api.loadHospitalsList();
-              setState(() => _future = next);
+              final next = _loadHospitals();
+              setState(() {
+                _future = next;
+              });
               await next;
             },
             child: FutureBuilder<HospitalsListResult>(
@@ -120,7 +168,10 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
                 if (result.needsSignIn) {
                   // Maps API can require auth; fallback to EMR hospitals list (public).
                   return FutureBuilder<HospitalsListResult>(
-                    future: _emrApi.loadHospitalsList(),
+                    future: _emrApi.loadHospitalsList(
+                      lat: _geoLat,
+                      lon: _geoLon,
+                    ),
                     builder: (context, fb) {
                       if (fb.connectionState != ConnectionState.done) {
                         return ListView(
@@ -171,6 +222,7 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
                         result: emr,
                         filter: _filter,
                         searchQuery: _searchQuery,
+                        userLocation: _userLatLng,
                         onReload: _reload,
                         onTapHospital: (h) {
                           Navigator.of(context).push<void>(
@@ -209,6 +261,7 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
                   result: result,
                   filter: _filter,
                   searchQuery: _searchQuery,
+                  userLocation: _userLatLng,
                   onReload: _reload,
                   onTapHospital: (h) {
                     Navigator.of(context).push<void>(
@@ -237,6 +290,7 @@ class _HospitalsListBody extends StatelessWidget {
     required this.result,
     required this.filter,
     required this.searchQuery,
+    required this.userLocation,
     required this.onReload,
     required this.onTapHospital,
   });
@@ -245,6 +299,7 @@ class _HospitalsListBody extends StatelessWidget {
   final HospitalsListResult result;
   final int filter;
   final String searchQuery;
+  final LatLng? userLocation;
   final VoidCallback onReload;
   final void Function(Hospital h) onTapHospital;
 
@@ -276,13 +331,45 @@ class _HospitalsListBody extends StatelessWidget {
     }
 
     final openCount = rows.where((h) => h.isOpen).length;
+    final geoBanner = result.geoNote;
 
     if (rows.isEmpty) {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.only(bottom: 24),
         children: [
-          _HospitalMapPreview(hospitals: result.hospitals),
+          if (geoBanner != null && geoBanner.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Material(
+                color: Colors.amber.shade50,
+                borderRadius: BorderRadius.circular(12),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.info_outline_rounded, color: Colors.amber.shade900),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          geoBanner,
+                          style: TextStyle(
+                            color: Colors.grey.shade900,
+                            height: 1.35,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          _HospitalMapPreview(
+            hospitals: result.hospitals,
+            userLocation: userLocation,
+          ),
           SizedBox(height: MediaQuery.of(context).size.height * 0.12),
           Icon(
             Icons.local_hospital_outlined,
@@ -321,9 +408,47 @@ class _HospitalsListBody extends StatelessWidget {
 
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-      itemCount: rows.length + 2,
+      itemCount: rows.length + 3,
       itemBuilder: (context, i) {
-        if (i == 0) return _HospitalMapPreview(hospitals: result.hospitals);
+        if (i == 0) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (geoBanner != null && geoBanner.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Material(
+                    color: Colors.amber.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.info_outline_rounded, color: Colors.amber.shade900),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              geoBanner,
+                              style: TextStyle(
+                                color: Colors.grey.shade900,
+                                height: 1.35,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              _HospitalMapPreview(
+                hospitals: result.hospitals,
+                userLocation: userLocation,
+              ),
+            ],
+          );
+        }
         if (i == 1) {
           return Padding(
             padding: const EdgeInsets.only(bottom: 10, top: 6),
@@ -369,7 +494,7 @@ class _HospitalsListBody extends StatelessWidget {
             ),
           );
         }
-        final h = rows[i - 2];
+        final h = rows[i - 3];
         return _HospitalCard(
           hospital: h,
           onTap: () => onTapHospital(h),
@@ -415,11 +540,15 @@ Widget _choiceChip({
 }
 
 /// OpenStreetMap tiles + pins using lat/lng from [CatalogApi.loadHospitalsList].
-/// Also shows device location (if permission granted).
+/// Also shows device GPS when granted, or [userLocation] from list/search context.
 class _HospitalMapPreview extends StatefulWidget {
-  const _HospitalMapPreview({required this.hospitals});
+  const _HospitalMapPreview({
+    required this.hospitals,
+    this.userLocation,
+  });
 
   final List<Hospital> hospitals;
+  final LatLng? userLocation;
 
   @override
   State<_HospitalMapPreview> createState() => _HospitalMapPreviewState();
@@ -434,8 +563,10 @@ class _HospitalMapPreviewState extends State<_HospitalMapPreview> {
       .where((h) => h.latitude.abs() > 1e-6 || h.longitude.abs() > 1e-6)
       .toList();
 
-  static LatLng _center(List<Hospital> pts) {
-    if (pts.isEmpty) return const LatLng(37.323, -122.032);
+  /// Prefer the device location so the map follows you (e.g. Tampa); else centroid of pins.
+  static LatLng _mapCenter(List<Hospital> pts, LatLng? user) {
+    if (user != null) return user;
+    if (pts.isEmpty) return const LatLng(27.9506, -82.4572);
     var la = 0.0;
     var ln = 0.0;
     for (final h in pts) {
@@ -485,7 +616,7 @@ class _HospitalMapPreviewState extends State<_HospitalMapPreview> {
   }
 
   void _centerOnUser() {
-    final p = _userLocation;
+    final p = _userLocation ?? widget.userLocation;
     if (p == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -500,13 +631,21 @@ class _HospitalMapPreviewState extends State<_HospitalMapPreview> {
   @override
   Widget build(BuildContext context) {
     final pts = _withCoords(widget.hospitals);
-    if (pts.isEmpty) {
+    final effectiveUser = _userLocation ?? widget.userLocation;
+    final center = _mapCenter(pts, effectiveUser);
+    final showMap = pts.isNotEmpty || effectiveUser != null;
+
+    if (!showMap) {
       return const Padding(
         padding: EdgeInsets.only(top: 6),
         child: _MapPlaceholder(),
       );
     }
-    final center = _center(pts);
+
+    final caption = effectiveUser != null
+        ? '© OSM · Map centered on you · Hospitals: GET /api/hospitals/?lat=&lon='
+        : '© OpenStreetMap contributors · Markers: GET /api/hospitals/';
+
     return Padding(
       padding: const EdgeInsets.only(top: 6, bottom: 6),
       child: ClipRRect(
@@ -520,7 +659,7 @@ class _HospitalMapPreviewState extends State<_HospitalMapPreview> {
                 mapController: _mapController,
                 options: MapOptions(
                   initialCenter: center,
-                  initialZoom: 11,
+                  initialZoom: effectiveUser != null ? 10 : 11,
                   interactionOptions: InteractionOptions(
                     flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
                   ),
@@ -534,25 +673,23 @@ class _HospitalMapPreviewState extends State<_HospitalMapPreview> {
                   ),
                   MarkerLayer(
                     markers: [
-                      if (_userLocation != null)
+                      if (effectiveUser != null)
                         Marker(
-                          point: _userLocation!,
-                          width: 22,
-                          height: 22,
+                          point: effectiveUser,
+                          width: 36,
+                          height: 36,
                           alignment: Alignment.center,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.blue,
-                              border: Border.all(color: Colors.white, width: 3),
-                              boxShadow: const [
-                                BoxShadow(
-                                  blurRadius: 10,
-                                  offset: Offset(0, 2),
-                                  color: Colors.black26,
-                                ),
-                              ],
-                            ),
+                          child: Icon(
+                            Icons.my_location_rounded,
+                            color: Colors.blue.shade700,
+                            size: 36,
+                            shadows: const [
+                              Shadow(
+                                blurRadius: 3,
+                                offset: Offset(0, 1),
+                                color: Colors.black38,
+                              ),
+                            ],
                           ),
                         ),
                       for (final h in pts)
@@ -601,7 +738,7 @@ class _HospitalMapPreviewState extends State<_HospitalMapPreview> {
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   color: Colors.black.withValues(alpha: 0.5),
                   child: Text(
-                    '© OpenStreetMap contributors · Markers: GET /api/hospitals/',
+                    caption,
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 10,

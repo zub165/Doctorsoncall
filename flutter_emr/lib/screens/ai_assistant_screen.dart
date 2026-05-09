@@ -144,11 +144,12 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
   /// Optional second message after instant triage — backend may take several seconds.
   Future<void> _enrichFromBackend(String originalQuery) async {
     try {
-      final res =
-          await MedicalRecordsApi(widget.apiClient).aiAssist(query: originalQuery);
-      final reply = (res['answer'] ?? res['response'] ?? res['text'] ?? '')
-          .toString()
-          .trim();
+      final queryForApi = _expandAssistantQuery(originalQuery);
+      final res = await MedicalRecordsApi(widget.apiClient).aiAssist(
+        query: queryForApi,
+        kind: 'patient_summary',
+      );
+      final reply = _replyFromAiAssistData(Map<String, dynamic>.from(res));
       if (reply.isEmpty || !mounted) return;
       final block = 'Additional guidance\n\n$reply';
       setState(() {
@@ -182,11 +183,16 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
       return;
     }
 
+    // First, try the backend AI (medical-records/ai-assist). If unavailable,
+    // fall back to safe, rule-based guidance.
+    final queryForApi = _expandAssistantQuery(t);
     String reply;
     try {
-      final res = await MedicalRecordsApi(widget.apiClient).aiAssist(query: t);
-      reply =
-          (res['answer'] ?? res['response'] ?? res['text'] ?? '').toString().trim();
+      final res = await MedicalRecordsApi(widget.apiClient).aiAssist(
+        query: queryForApi,
+        kind: 'patient_summary',
+      );
+      reply = _replyFromAiAssistData(Map<String, dynamic>.from(res));
       if (reply.isEmpty) {
         reply = _fallback(t);
       }
@@ -251,6 +257,42 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
       return _urgent(
         'Bleeding',
         "Apply firm pressure with clean cloth. If bleeding is heavy, doesn't stop, or you feel faint, seek emergency care now.",
+      );
+    }
+    if (q.contains('fatigue') || q.contains('tired')) {
+      return _basic(
+        'Fatigue',
+        [
+          'Rest, fluids, and consistent sleep often help short-term tiredness.',
+          'See a clinician if fatigue lasts more than a couple of weeks, is severe, or comes with fever, weight change, shortness of breath, chest pain, unusual bleeding, or depression.',
+        ],
+      );
+    }
+    if (q.contains('dental') || q.contains('tooth')) {
+      return _basic(
+        'Dental pain',
+        [
+          'Rinse gently with warm water; avoid very hot/cold on the painful tooth if sensitive.',
+          'Dental infections can spread — seek a dentist promptly for persistent or worsening tooth/jaw pain, swelling, fever, or trouble swallowing.',
+        ],
+      );
+    }
+    if (q.contains('injury')) {
+      return _basic(
+        'Injury',
+        [
+          'Rest, ice, compression, and elevation help many minor sprains/strains.',
+          'Seek urgent care for deformity, numbness, inability to bear weight/use the limb, head injury with confusion, or worsening pain/swelling.',
+        ],
+      );
+    }
+    if (q.contains('medication')) {
+      return _basic(
+        'Medication questions',
+        [
+          'Do not change doses or stop prescriptions without your prescriber’s advice.',
+          'For side effects or interactions, contact your pharmacist or clinician with the exact drug names and doses.',
+        ],
       );
     }
 
@@ -350,28 +392,38 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Expanded(
                   child: TextField(
                     controller: _input,
                     textInputAction: TextInputAction.send,
                     onSubmitted: _sending ? null : _send,
+                    minLines: 1,
+                    maxLines: 4,
                     decoration: const InputDecoration(
                       hintText: 'Send a message',
                       prefixIcon: Icon(Icons.chat_bubble_outline),
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
-                IconButton.filled(
-                  onPressed: _sending ? null : () => _send(_input.text),
-                  icon: _sending
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.send_rounded),
+                const SizedBox(width: 8),
+                Tooltip(
+                  message: 'Send',
+                  child: IconButton.filled(
+                    style: IconButton.styleFrom(
+                      minimumSize: const Size(48, 48),
+                      fixedSize: const Size(48, 48),
+                    ),
+                    onPressed: _sending ? null : () => _send(_input.text),
+                    icon: _sending
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.send_rounded),
+                  ),
                 ),
               ],
             ),
@@ -529,43 +581,37 @@ class _DoctorSoapNoteScreenState extends State<DoctorSoapNoteScreen> {
     if (text.isEmpty) return;
     setState(() => _busy = true);
     try {
-      final prompt = '''
-Convert the following clinician dictation into a SOAP note.
-Return STRICT JSON with keys: subjective, objective, assessment, plan.
-No markdown, no extra keys.
-
-DICTATION:
-$text
-''';
       final res = await MedicalRecordsApi(widget.apiClient).aiAssist(
-        query: prompt,
+        query: text,
         kind: 'soap',
       );
       final soapMap = res['soap'];
       if (soapMap is Map) {
-        final m = Map<String, dynamic>.from(soapMap);
-        _subjective.text = (m['subjective'] ?? '').toString();
-        _objective.text = (m['objective'] ?? '').toString();
-        _assessment.text = (m['assessment'] ?? '').toString();
-        _plan.text = (m['plan'] ?? '').toString();
+        _fillSoapFromMap(Map<String, dynamic>.from(soapMap));
       } else {
-        final raw =
-            (res['answer'] ?? res['response'] ?? res['text'] ?? res).toString();
-        final parsed = _parseSoap(raw);
-        if (parsed != null) {
-          _subjective.text = parsed['subjective'] ?? '';
-          _objective.text = parsed['objective'] ?? '';
-          _assessment.text = parsed['assessment'] ?? '';
-          _plan.text = parsed['plan'] ?? '';
+        final structured = res['structured'];
+        if (structured is Map &&
+            (structured.containsKey('subjective') ||
+                structured.containsKey('soap_format'))) {
+          _fillSoapFromMap(Map<String, dynamic>.from(structured));
         } else {
-          final fallback = _splitByHeadings(raw);
-          if (fallback.isNotEmpty) {
-            _subjective.text = fallback['subjective'] ?? '';
-            _objective.text = fallback['objective'] ?? '';
-            _assessment.text = fallback['assessment'] ?? '';
-            _plan.text = fallback['plan'] ?? '';
+          final raw = (res['summary'] ?? '').toString();
+          final parsed = _parseSoap(raw);
+          if (parsed != null) {
+            _subjective.text = parsed['subjective'] ?? '';
+            _objective.text = parsed['objective'] ?? '';
+            _assessment.text = parsed['assessment'] ?? '';
+            _plan.text = parsed['plan'] ?? '';
           } else {
-            _subjective.text = raw;
+            final fallback = _splitByHeadings(raw);
+            if (fallback.isNotEmpty) {
+              _subjective.text = fallback['subjective'] ?? '';
+              _objective.text = fallback['objective'] ?? '';
+              _assessment.text = fallback['assessment'] ?? '';
+              _plan.text = fallback['plan'] ?? '';
+            } else {
+              _subjective.text = raw;
+            }
           }
         }
       }
@@ -581,6 +627,13 @@ $text
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  void _fillSoapFromMap(Map<String, dynamic> m) {
+    _subjective.text = _coerceSoapSection(m['subjective']);
+    _objective.text = _coerceSoapSection(m['objective']);
+    _assessment.text = _coerceSoapSection(m['assessment']);
+    _plan.text = _coerceSoapSection(m['plan']);
   }
 
   Map<String, String>? _parseSoap(String raw) {
@@ -765,4 +818,114 @@ $text
       decoration: InputDecoration(labelText: label),
     );
   }
+}
+
+String _coerceSoapSection(dynamic v) {
+  if (v == null) return '';
+  if (v is List) {
+    return v
+        .map((e) => e.toString())
+        .where((s) => s.trim().isNotEmpty)
+        .join('\n');
+  }
+  return v.toString().trim();
+}
+
+String _formatDoctorStructured(Map<String, dynamic> m) {
+  final sb = StringBuffer();
+  void section(String title, String key) {
+    final v = m[key];
+    if (v == null) return;
+    final parts = v is List
+        ? v.map((e) => e.toString()).where((s) => s.trim().isNotEmpty).toList()
+        : [v.toString().trim()].where((s) => s.isNotEmpty).toList();
+    if (parts.isEmpty) return;
+    sb.writeln(title);
+    for (final p in parts) {
+      sb.writeln('• $p');
+    }
+    sb.writeln();
+  }
+
+  section('HPI', 'hpi');
+  section('Key findings', 'key_findings');
+  section('Assessment', 'assessment');
+  section('Plan', 'plan');
+  section('Red flags', 'red_flags');
+  return sb.toString().trim();
+}
+
+String _formatPatientStructured(Map<String, dynamic> m) {
+  final sb = StringBuffer();
+  void section(String title, String key) {
+    final v = m[key];
+    if (v == null) return;
+    final parts = v is List
+        ? v.map((e) => e.toString()).where((s) => s.trim().isNotEmpty).toList()
+        : [v.toString().trim()].where((s) => s.isNotEmpty).toList();
+    if (parts.isEmpty) return;
+    sb.writeln(title);
+    for (final p in parts) {
+      sb.writeln('• $p');
+    }
+    sb.writeln();
+  }
+
+  section('Summary', 'summary_bullets');
+  section('Next steps', 'next_steps');
+  section('Warnings', 'warnings');
+  return sb.toString().trim();
+}
+
+/// Quick chips send short labels; the backend prompt works better with context.
+String _expandAssistantQuery(String raw) {
+  const m = <String, String>{
+    'Headache':
+        'Patient reports headache. Give brief self-care, red flags for urgent care, and one or two clarifying questions (onset, severity, neurological symptoms).',
+    'Chest pain':
+        'Patient reports chest pain. Explain when to call emergency services; give only general education, no diagnosis.',
+    'Fever':
+        'Patient reports fever. Give home care basics and when to seek urgent or emergency care.',
+    'Nausea':
+        'Patient reports nausea. Offer hydration and diet tips and warning signs to seek care.',
+    'Breathing issues':
+        'Patient reports breathing difficulty. Emphasize emergency signs; brief calm guidance otherwise.',
+    'Dental pain':
+        'Patient reports dental/tooth pain. Advise dental follow-up and infection warning signs.',
+    'Bleeding':
+        'Patient reports bleeding. First aid basics and when emergency care is needed.',
+    'Injury':
+        'Patient reports an injury. Safe general care and red flags for urgent evaluation.',
+    'Fatigue':
+        'Patient reports fatigue or tiredness. Offer common benign patterns, warning symptoms, and sensible next steps without diagnosing.',
+    'Medication help':
+        'Patient needs help with medications (side effects, dosing questions). Advise speaking with prescriber/pharmacist; no specific dosing changes.',
+  };
+  final key = raw.trim();
+  return m[key] ?? key;
+}
+
+String _replyFromAiAssistData(Map<String, dynamic> res) {
+  final summary = (res['summary'] ?? '').toString().trim();
+  final kind = (res['kind'] ?? '').toString();
+  final structured = res['structured'];
+  if (structured is Map) {
+    final m = Map<String, dynamic>.from(structured);
+    if (m.containsKey('text') && m.length == 1) {
+      final t = (m['text'] ?? '').toString().trim();
+      return t.isNotEmpty ? t : summary;
+    }
+    if (kind == 'patient_summary' || m.containsKey('summary_bullets')) {
+      final out = _formatPatientStructured(m);
+      if (out.isNotEmpty) return out;
+    }
+    if (kind == 'doctor_summary' ||
+        m.containsKey('hpi') ||
+        m.containsKey('key_findings')) {
+      final out = _formatDoctorStructured(m);
+      if (out.isNotEmpty) return out;
+    }
+  }
+  if (summary.isNotEmpty) return summary;
+  return '';
 }

@@ -85,11 +85,11 @@ class EmrFeaturesApi {
     await _c.raw.delete<dynamic>('${ApiPaths.providersList}$id/');
   }
 
+  /// [fixture] — when true, calls `GET …/plans/?fixture=1` so Django can seed demo rows when allowed.
   Future<dynamic> plans({bool fixture = false}) async {
-    final r = await _c.raw.get<dynamic>(
-      ApiPaths.plans,
-      queryParameters: {if (fixture) 'fixture': '1'},
-    );
+    final path =
+        fixture ? '${ApiPaths.plans}?fixture=1' : ApiPaths.plans;
+    final r = await _c.raw.get<dynamic>(path);
     return r.data;
   }
 
@@ -164,6 +164,15 @@ class EmrFeaturesApi {
   Future<dynamic> allAppointments() async {
     final r = await _c.raw.get<dynamic>(ApiPaths.allAppointments);
     return r.data;
+  }
+
+  /// Staff PATCH `…/appointments/<id>/` — keys `date`, `time`, `status` (maps to approved on server).
+  Future<void> adminPatchAppointment(int id, Map<String, dynamic> patch) async {
+    await _c.raw.patch<dynamic>(
+      '${ApiPaths.storeAppointment}$id/',
+      data: patch,
+      options: Options(contentType: Headers.jsonContentType),
+    );
   }
 
   Future<void> submitFeedback(String text) async {

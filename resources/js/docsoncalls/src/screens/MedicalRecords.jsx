@@ -1,6 +1,78 @@
 import React from 'react';
 import { api, ApiPaths } from '../api.js';
 
+function unwrapAiEnvelope(payload) {
+  if (payload?.status === 'success' && payload.data && typeof payload.data === 'object') {
+    return payload.data;
+  }
+  return payload?.data ?? payload;
+}
+
+function pickLines(v) {
+  if (v == null) return '';
+  if (Array.isArray(v)) return v.filter(Boolean).map(String).join('\n');
+  return String(v);
+}
+
+/** Human-readable AI assist text from Django `{ structured, summary, soap, kind }`. */
+export function formatAiAssistReadable(payload) {
+  const inner = unwrapAiEnvelope(payload);
+  if (!inner || typeof inner !== 'object') return '';
+
+  const soap = inner.soap;
+  if (soap && typeof soap === 'object') {
+    return ['SOAP', `S: ${pickLines(soap.subjective)}`, `O: ${pickLines(soap.objective)}`, `A: ${pickLines(soap.assessment)}`, `P: ${pickLines(soap.plan)}`]
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  const st = inner.structured;
+  const kind = inner.kind || '';
+
+  if (st && typeof st === 'object') {
+    if (st.text != null && Object.keys(st).length <= 2) {
+      return String(st.text).trim();
+    }
+    if (kind === 'patient_summary' || Array.isArray(st.summary_bullets)) {
+      const lines = [];
+      const pushBullets = (title, arr) => {
+        if (!Array.isArray(arr) || !arr.length) return;
+        lines.push(title);
+        arr.forEach((x) => lines.push(`• ${x}`));
+        lines.push('');
+      };
+      pushBullets('Summary', st.summary_bullets);
+      pushBullets('Next steps', st.next_steps);
+      pushBullets('Warnings', st.warnings);
+      if (lines.length) return lines.join('\n').trim();
+    }
+    if (Array.isArray(st.hpi) || kind === 'doctor_summary' || st.hpi != null || st.key_findings != null) {
+      const lines = [];
+      const pushArr = (title, arr) => {
+        const a = Array.isArray(arr) ? arr : arr != null ? [arr] : [];
+        if (!a.length) return;
+        lines.push(title);
+        a.forEach((x) => lines.push(`• ${x}`));
+        lines.push('');
+      };
+      pushArr('HPI', st.hpi);
+      pushArr('Key findings', st.key_findings);
+      pushArr('Assessment', st.assessment);
+      pushArr('Plan', st.plan);
+      pushArr('Red flags', st.red_flags);
+      if (lines.length) return lines.join('\n').trim();
+    }
+    if (st.subjective != null || st.soap_format) {
+      return [`S: ${pickLines(st.subjective)}`, `O: ${pickLines(st.objective)}`, `A: ${pickLines(st.assessment)}`, `P: ${pickLines(st.plan)}`].join('\n');
+    }
+  }
+
+  const sum = inner.summary;
+  if (typeof sum === 'string' && sum.trim()) return sum.trim();
+
+  return JSON.stringify(inner, null, 2);
+}
+
 export function MedicalRecords() {
   const [tab, setTab] = React.useState('records'); // records | ai | docs | share
   const [prompt, setPrompt] = React.useState('');
@@ -529,7 +601,7 @@ export function MedicalRecords() {
             {ai.error ? <div style={{ color: 'var(--dc-danger)', fontWeight: 900, fontSize: 13 }}>{ai.error}</div> : null}
             {ai.data ? (
               <div className="dc-card" style={{ background: 'white' }}>
-                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 13 }}>{JSON.stringify(ai.data, null, 2)}</pre>
+                <pre style={{ margin: 0, whiteSpace: 'pre-wrap', fontSize: 13 }}>{formatAiAssistReadable(ai.data)}</pre>
               </div>
             ) : null}
             <button className="dc-btn dc-btn-primary" disabled={ai.loading} style={{ padding: 14, borderRadius: 16, fontWeight: 950 }}>

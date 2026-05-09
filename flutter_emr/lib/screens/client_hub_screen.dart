@@ -6,6 +6,7 @@ import '../services/emr_features_api.dart';
 import '../services/offline_db.dart';
 import '../services/user_api.dart';
 import '../theme/app_theme.dart';
+import '../utils/api_envelope.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class ClientHubScreen extends StatelessWidget {
@@ -571,28 +572,17 @@ class _PlanTabState extends State<_PlanTab> {
   bool _busy = false;
   bool _fixtureTried = false;
 
-  Future<void> _load() async {
+  Future<void> _load({bool requestDemoSeed = false}) async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
       final api = EmrFeaturesApi(widget.apiClient);
-      final plansRaw = await api.plans(fixture: _fixtureTried);
+      final plansRaw = await api.plans(fixture: requestDemoSeed);
       final billingRaw = await api.billingStatus();
 
-      List<Map<String, dynamic>> plans = [];
-      if (plansRaw is Map && plansRaw['results'] is List) {
-        plans = (plansRaw['results'] as List)
-            .whereType<Map>()
-            .map((e) => Map<String, dynamic>.from(e))
-            .toList();
-      } else if (plansRaw is List) {
-        plans = plansRaw
-            .whereType<Map>()
-            .map((e) => Map<String, dynamic>.from(e))
-            .toList();
-      }
+      final plans = ApiEnvelope.coercePlanList(plansRaw);
 
       Map<String, dynamic>? active;
       if (billingRaw is Map) {
@@ -773,9 +763,41 @@ class _PlanTabState extends State<_PlanTab> {
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: Text(
-                  'No plans configured.',
-                  style: TextStyle(color: Colors.grey.shade700),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'No plans in the Django database yet.',
+                      style: TextStyle(
+                        color: Colors.grey.shade900,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'This list comes from GET /api/plans/ (Admin → Plans on the same server as your API). '
+                      'Creating products only in Stripe does not fill this tab — add Plan rows in Django, '
+                      'or use Stripe buy buttons from app settings (separate from this list).',
+                      style: TextStyle(color: Colors.grey.shade700, height: 1.35),
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: _busy
+                          ? null
+                          : () => _load(requestDemoSeed: true),
+                      icon: const Icon(Icons.cloud_download_outlined),
+                      label: const Text('Try load demo plans'),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Demo seed only works when the API allows it (e.g. DEBUG or ALLOW_PLAN_DEMO_SEED) and the Plan table is empty.',
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 12,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             )

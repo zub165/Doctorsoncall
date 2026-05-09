@@ -245,8 +245,16 @@ class _AdminTab extends StatelessWidget {
           final pr = m['provider'] is Map ? (m['provider'] as Map)['full_name'] : '';
           return 'Patient: $p · Provider: $pr';
         },
-        editorFields: const [],
-        onSave: (id, patch) async {},
+        editorFields: const [
+          _EditorField(keyName: 'date', label: 'Date (YYYY-MM-DD)'),
+          _EditorField(keyName: 'time', label: 'Time (HH:MM or HH:MM:SS)'),
+          _EditorField(
+            keyName: 'status',
+            label: 'Status (stored as approved)',
+            initialFromKey: 'approved',
+          ),
+        ],
+        onSave: (id, patch) => api.adminPatchAppointment(id, patch),
       );
     }
 
@@ -417,7 +425,11 @@ class _AdminCrudListState extends State<_AdminCrudList> {
     super.dispose();
   }
 
-  void _reload() => setState(() => _f = widget.load());
+  void _reload() {
+    setState(() {
+      _f = widget.load();
+    });
+  }
 
   Future<void> _edit(Map<String, dynamic> item) async {
     final idRaw = item['id'];
@@ -426,7 +438,9 @@ class _AdminCrudListState extends State<_AdminCrudList> {
 
     final ctrls = <String, TextEditingController>{
       for (final f in widget.editorFields)
-        f.keyName: TextEditingController(text: (item[f.keyName] ?? '').toString())
+        f.keyName: TextEditingController(
+          text: (item[f.initialFromKey ?? f.keyName] ?? item[f.keyName] ?? '').toString(),
+        ),
     };
 
     final saved = await showModalBottomSheet<bool>(
@@ -441,32 +455,42 @@ class _AdminCrudListState extends State<_AdminCrudList> {
             top: 8,
             bottom: MediaQuery.of(context).viewInsets.bottom + 16,
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text('Edit ${widget.title}', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-              const SizedBox(height: 12),
-              for (final f in widget.editorFields) ...[
-                TextField(
-                  controller: ctrls[f.keyName],
-                  decoration: InputDecoration(
-                    labelText: f.label,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('Edit ${widget.title}', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 12),
+                if (widget.editorFields.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(
+                      'No editable fields configured for this list.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade700),
+                    ),
+                  ),
+                for (final f in widget.editorFields) ...[
+                  TextField(
+                    controller: ctrls[f.keyName],
+                    decoration: InputDecoration(
+                      labelText: f.label,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                ],
+                const SizedBox(height: 6),
+                SizedBox(
+                  height: 52,
+                  child: FilledButton(
+                    onPressed: () => Navigator.of(context).pop(true),
+                    child: const Text('Save changes'),
                   ),
                 ),
                 const SizedBox(height: 10),
               ],
-              const SizedBox(height: 6),
-              SizedBox(
-                height: 52,
-                child: FilledButton(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  child: const Text('Save changes'),
-                ),
-              ),
-              const SizedBox(height: 10),
-            ],
+            ),
           ),
         );
       },
@@ -624,9 +648,17 @@ class _AdminCrudListState extends State<_AdminCrudList> {
 }
 
 class _EditorField {
-  const _EditorField({required this.keyName, required this.label});
+  const _EditorField({
+    required this.keyName,
+    required this.label,
+    this.initialFromKey,
+  });
+
   final String keyName;
   final String label;
+
+  /// Initial TextField value uses `item[initialFromKey]` when set (e.g. API returns `approved`, PATCH sends `status`).
+  final String? initialFromKey;
 }
 
 class _AdminApprovalsOnly extends StatefulWidget {

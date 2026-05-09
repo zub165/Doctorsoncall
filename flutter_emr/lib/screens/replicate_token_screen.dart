@@ -89,7 +89,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return RefreshIndicator(
       onRefresh: () async {
         final f = _load();
-        setState(() => _f = f);
+        setState(() {
+          _f = f;
+        });
         await f;
       },
       child: FutureBuilder<_ConnState>(

@@ -17,9 +17,18 @@ class CatalogApi {
   }
 
   /// Typed list with **401 → needsSignIn** (common on production when guest has no token).
-  Future<HospitalsListResult> loadHospitalsList() async {
+  ///
+  /// When [lat] / [lon] are set, server sorts by distance (see `GET /api/hospitals/?lat=&lon=`).
+  Future<HospitalsListResult> loadHospitalsList({
+    double? lat,
+    double? lon,
+    double radiusKm = 150,
+  }) async {
     try {
-      final r = await _c.raw.get<dynamic>(ApiPaths.hospitals);
+      final path = (lat != null && lon != null)
+          ? '${ApiPaths.hospitals}?lat=$lat&lon=$lon&radius_km=$radiusKm'
+          : ApiPaths.hospitals;
+      final r = await _c.raw.get<dynamic>(path);
       final maps = _extractHospitalMaps(r.data);
       final hospitals = <Hospital>[];
       for (final m in maps) {
@@ -29,7 +38,16 @@ class CatalogApi {
           /* skip malformed row */
         }
       }
-      return HospitalsListResult(hospitals: hospitals);
+      String? geoNote;
+      final raw = r.data;
+      if (raw is Map) {
+        final m = Map<String, dynamic>.from(raw);
+        if (ApiEnvelope.isSuccess(m)) {
+          final d = ApiEnvelope.dataMap(m);
+          geoNote = d?['geo_note']?.toString();
+        }
+      }
+      return HospitalsListResult(hospitals: hospitals, geoNote: geoNote);
     } on DioException catch (e) {
       final code = e.response?.statusCode;
       if (code == 401 || code == 403) {
@@ -111,11 +129,15 @@ class HospitalsListResult {
     this.hospitals = const [],
     this.needsSignIn = false,
     this.errorMessage,
+    this.geoNote,
   });
 
   final List<Hospital> hospitals;
   final bool needsSignIn;
   final String? errorMessage;
+
+  /// Backend hint when no rows fall inside [radius_km] but farther entries are returned.
+  final String? geoNote;
 
   bool get hasError => errorMessage != null && errorMessage!.isNotEmpty;
 }
