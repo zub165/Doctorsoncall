@@ -17,7 +17,10 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     rollupOptions: {
-      input: 'docsoncalls-pages/index.html',
+      input: {
+        index: 'docsoncalls-pages/index.html',
+        privacy: 'docsoncalls-pages/privacy.html',
+      },
     },
   },
   define: {
