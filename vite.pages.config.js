@@ -20,6 +20,7 @@ export default defineConfig({
       input: {
         index: 'docsoncalls-pages/index.html',
         privacy: 'docsoncalls-pages/privacy.html',
+        delete: 'docsoncalls-pages/delete.html',
       },
     },
   },

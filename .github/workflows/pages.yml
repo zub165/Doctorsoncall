@@ -56,6 +56,7 @@ jobs:
           cp dist/docsoncalls-pages/index.html dist/index.html
           # Preserve additional pages (multi-page build)
           if [ -f dist/docsoncalls-pages/privacy.html ]; then cp dist/docsoncalls-pages/privacy.html dist/privacy.html; fi
+          if [ -f dist/docsoncalls-pages/delete.html ]; then cp dist/docsoncalls-pages/delete.html dist/delete.html; fi
           rm -rf dist/docsoncalls-pages
 
       - name: Add SPA fallback
