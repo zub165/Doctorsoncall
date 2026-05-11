@@ -69,6 +69,7 @@ class Patient(models.Model):
     birth_place = models.CharField(max_length=255, blank=True)
     identity_no = models.CharField(max_length=255, blank=True)
     profile_status = models.CharField(max_length=64, blank=True)
+    whatsapp_number = models.CharField(max_length=32, blank=True)
 
     class Meta:
         db_table = "patients"
@@ -133,6 +134,7 @@ class Provider(models.Model):
     is_verified = models.BooleanField(default=False)
     registered_date = models.DateTimeField(null=True, blank=True)
     last_login = models.DateTimeField(null=True, blank=True)
+    whatsapp_number = models.CharField(max_length=32, blank=True)
 
     class Meta:
         db_table = "providers"

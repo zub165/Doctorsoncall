@@ -119,6 +119,67 @@ class PatientSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class PatientSelfSerializer(serializers.ModelSerializer):
+    """`GET /api/patients/me/` — safe subset for the signed-in patient."""
+
+    class Meta:
+        model = Patient
+        fields = (
+            "id",
+            "user_id",
+            "name",
+            "email",
+            "image",
+            "city",
+            "country",
+            "date_of_birth",
+            "profile_status",
+            "whatsapp_number",
+        )
+
+
+class PatientSelfUpdateSerializer(serializers.Serializer):
+    whatsapp_number = serializers.CharField(
+        required=False, allow_blank=True, max_length=32
+    )
+
+
+class ProviderSelfSerializer(serializers.ModelSerializer):
+    """`GET /api/providers/me/` — profile for the signed-in provider."""
+
+    speciality_name = serializers.CharField(
+        source="speciality.speciality_name", read_only=True
+    )
+
+    class Meta:
+        model = Provider
+        fields = (
+            "id",
+            "user_id",
+            "full_name",
+            "email",
+            "phone_number",
+            "whatsapp_number",
+            "status",
+            "speciality_id",
+            "speciality_name",
+            "consultation_fee",
+            "consultation_type",
+            "profile_picture",
+            "bio",
+            "time_zone",
+        )
+
+
+class ProviderSelfUpdateSerializer(serializers.Serializer):
+    phone_number = serializers.CharField(
+        required=False, allow_blank=True, max_length=64
+    )
+    whatsapp_number = serializers.CharField(
+        required=False, allow_blank=True, max_length=32
+    )
+
+
 class AppointmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Appointment
