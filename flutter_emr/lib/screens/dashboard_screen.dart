@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../config/api_config.dart';
 import '../services/auth_api.dart';
 import '../services/emergency_api_client.dart';
+import '../services/emr_features_api.dart';
 import '../theme/app_theme.dart';
 import '../services/health_api.dart';
 import '../services/user_api.dart';
@@ -31,6 +32,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool _guest = false;
   Map<String, dynamic>? _health;
   String? _loadError;
+  int? _appointmentCount;
+  int? _providerCount;
+  bool _statsLoading = false;
 
   bool get _ready => _profileInner != null || _loadError != null;
 
@@ -72,6 +76,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _profileInner = inner;
         _guest = !authenticated;
       });
+      if (authenticated) {
+        await _loadQuickStats();
+      } else {
+        if (mounted) {
+          setState(() {
+            _appointmentCount = null;
+            _providerCount = null;
+            _statsLoading = false;
+          });
+        }
+      }
     } on DioException catch (e) {
       if (!mounted) return;
       final code = e.response?.statusCode;
@@ -91,8 +106,92 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _guest = false;
         _loadError =
             e.message ?? 'Failed to load ${ApiConfig.userMePath}';
+        _appointmentCount = null;
+        _providerCount = null;
+        _statsLoading = false;
       });
     }
+  }
+
+  static String _roleFromProfile(Map<String, dynamic>? p) {
+    if (p == null) return '';
+    return (p['role'] ?? p['user_role'] ?? p['type'] ?? '').toString().toLowerCase().trim();
+  }
+
+  static int _lengthFromAppointmentsEnvelope(dynamic data) {
+    final raw = data is Map
+        ? ((data['appointments'] ??
+                (data['data'] is Map ? (data['data']['appointments'] ?? const []) : const [])) ??
+            const [])
+        : (data is List ? data : const []);
+    final list = raw is List ? raw : const [];
+    return list.length;
+  }
+
+  static int _lengthFromProvidersEnvelope(dynamic data) {
+    if (data is List) return data.length;
+    if (data is! Map) return 0;
+    final m = Map<String, dynamic>.from(data);
+    dynamic v = m['results'] ?? m['data'] ?? m['providers'] ?? m['items'];
+    if (v is List) return v.length;
+    if (v is Map) {
+      final inner = v['results'] ?? v['data'] ?? v['providers'];
+      if (inner is List) return inner.length;
+    }
+    return 0;
+  }
+
+  Future<void> _loadQuickStats() async {
+    if (!mounted || _guest || _profileInner == null) return;
+    setState(() => _statsLoading = true);
+    final api = EmrFeaturesApi(widget.apiClient);
+    final role = _roleFromProfile(_profileInner);
+    final isAdmin =
+        role == 'admin' || role == 'administrator' || role == 'staff';
+    final isDoctor =
+        role == 'doctor' || role == 'provider' || role == 'physician';
+
+    int? appt;
+    try {
+      dynamic data;
+      if (isAdmin || isDoctor) {
+        try {
+          data = await api.allAppointments();
+        } on DioException catch (e) {
+          if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
+            data = await api.myAppointments();
+          } else {
+            rethrow;
+          }
+        }
+      } else {
+        data = await api.myAppointments();
+      }
+      appt = _lengthFromAppointmentsEnvelope(data);
+    } catch (_) {
+      appt = null;
+    }
+
+    int? prov;
+    try {
+      prov = _lengthFromProvidersEnvelope(await api.providers());
+    } catch (_) {
+      prov = null;
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _appointmentCount = appt;
+      _providerCount = prov;
+      _statsLoading = false;
+    });
+  }
+
+  String _statText({required int? count}) {
+    if (_guest) return '—';
+    if (_statsLoading) return '…';
+    if (count == null) return '—';
+    return '$count';
   }
 
   @override
@@ -166,7 +265,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     return RefreshIndicator(
-      onRefresh: _loadProfile,
+      onRefresh: () async {
+        await _loadProfile();
+        if (mounted && _profileInner != null && !_guest) {
+          await _loadQuickStats();
+        }
+      },
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -258,7 +362,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   theme,
                   Icons.calendar_today,
                   'Appointments',
-                  '0',
+                  _statText(count: _appointmentCount),
                   const Color(0xFF4CAF50),
                   onTap: () => widget.onNavigateToTab?.call(6),
                 ),
@@ -269,7 +373,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   theme,
                   Icons.local_hospital,
                   'Hospitals',
-                  '0',
+                  'Open',
                   const Color(0xFF2196F3),
                   onTap: () => widget.onNavigateToTab?.call(1),
                 ),
@@ -284,7 +388,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   theme,
                   Icons.people,
                   'Providers',
-                  '0',
+                  _statText(count: _providerCount),
                   const Color(0xFF9C27B0),
                   onTap: () => widget.onNavigateToTab?.call(9),
                 ),

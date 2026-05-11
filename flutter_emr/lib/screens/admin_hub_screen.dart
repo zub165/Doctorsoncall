@@ -263,7 +263,7 @@ class _AdminTab extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Text(
-          'Admin section “$title” is not wired yet.',
+          'Admin section "$title" is not wired yet.',
           textAlign: TextAlign.center,
           style: Theme.of(context).textTheme.bodyLarge,
         ),
