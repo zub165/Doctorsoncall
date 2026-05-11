@@ -150,6 +150,7 @@ class AppointmentExpandedSerializer(serializers.ModelSerializer):
             "approved",
             "medium",
             "review",
+            "medical_record_id",
             "provider",
             "patient",
             "provider_id",

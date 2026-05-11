@@ -1638,6 +1638,61 @@ def appointment_all(request):
     return _success({"appointments": AppointmentExpandedSerializer(qs, many=True).data})
 
 
+@api_view(["GET", "PATCH"])
+@authentication_classes([TokenAuthentication, SessionAuthentication])
+@permission_classes([IsAuthenticated])
+def appointment_detail(request, pk):
+    """GET|PATCH /api/appointments/<pk>/ — patient, assigned provider, or staff.
+
+    PATCH body (optional keys): ``medical_record_id`` — integer server id, or ``null`` to clear.
+    The medical record must belong to the same patient as the appointment.
+    """
+    appt = (
+        Appointment.objects.filter(pk=pk)
+        .select_related("patient__user", "provider__user", "medical_record")
+        .first()
+    )
+    if not appt:
+        return _error({"detail": ["Not found"]}, status.HTTP_404_NOT_FOUND)
+
+    user = request.user
+    allowed = (
+        _is_staffish(user)
+        or (appt.patient.user_id == user.id)
+        or (appt.provider.user_id == user.id)
+    )
+    if not allowed:
+        return _error({"detail": ["Forbidden"]}, status.HTTP_403_FORBIDDEN)
+
+    if request.method == "GET":
+        return _success({"appointment": AppointmentExpandedSerializer(appt).data})
+
+    if "medical_record_id" in request.data:
+        mr_raw = request.data.get("medical_record_id")
+        if mr_raw in (None, "", "null"):
+            appt.medical_record = None
+        else:
+            try:
+                mr_pk = int(mr_raw)
+            except (TypeError, ValueError):
+                return _error({"medical_record_id": ["invalid"]})
+            mr = MedicalRecord.objects.filter(pk=mr_pk).first()
+            if not mr:
+                return _error({"medical_record_id": ["not found"]})
+            if mr.patient_id != appt.patient_id:
+                return _error(
+                    {"medical_record_id": ["record does not belong to this patient"]},
+                    status.HTTP_400_BAD_REQUEST,
+                )
+            appt.medical_record = mr
+        appt.save(update_fields=["medical_record"])
+
+    return _success(
+        {"appointment": AppointmentExpandedSerializer(appt).data},
+        message="Updated",
+    )
+
+
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def appointment_create(request):

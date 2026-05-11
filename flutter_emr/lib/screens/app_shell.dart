@@ -178,7 +178,10 @@ class _AppShellState extends State<AppShell> {
             apiClient: c,
             onNavigateToShellTab: (i) => setState(() => _index = i),
           ),
-          OsmToolsScreen(apiClient: c),
+          OsmToolsScreen(
+            apiClient: c,
+            onNavigateToShellTab: (i) => setState(() => _index = i),
+          ),
           CoursesScreen(apiClient: c),
           AiAssistantScreen(apiClient: c),
           DoctorSoapNoteScreen(apiClient: c),

@@ -146,6 +146,13 @@ class Appointment(models.Model):
     approved = models.CharField(max_length=64, blank=True, null=True)
     medium = models.CharField(max_length=64, blank=True, null=True)
     review = models.CharField(max_length=512, blank=True, null=True)
+    medical_record = models.ForeignKey(
+        "MedicalRecord",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="appointments",
+    )
 
     class Meta:
         db_table = "appointment"

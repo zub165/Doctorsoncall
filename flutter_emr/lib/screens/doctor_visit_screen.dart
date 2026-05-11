@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:drift/drift.dart' hide Column;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
@@ -12,13 +13,17 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../config/api_config.dart';
 import '../models/medical_record.dart';
 import '../services/emergency_api_client.dart';
+import '../services/emr_features_api.dart';
+import '../services/medical_records_api.dart';
 import '../services/offline_db.dart';
 import '../services/sync_service.dart';
 import '../theme/app_theme.dart';
 
-/// Doctor Visit screen (Audio/Video placeholders + attachments/import/export placeholders).
+/// Doctor visit: local record preview, triage, WhatsApp or browser meet, file tools,
+/// and linking a **server** medical record to an appointment (`PATCH …/appointments/<id>/`).
 ///
 /// - Shows latest local medical record (offline-first).
 /// - Can run best-effort sync before starting the visit.
@@ -438,6 +443,221 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
     }
   }
 
+  static List<Map<String, dynamic>> _unwrapAppointmentList(dynamic data) {
+    final raw = data is Map
+        ? ((data['appointments'] ??
+                (data['data'] is Map ? (data['data']['appointments'] ?? const []) : const [])) ??
+            const [])
+        : const [];
+    if (raw is! List) return const [];
+    return raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+  }
+
+  static int? _appointmentPk(Map<String, dynamic> m) {
+    final id = m['id'];
+    if (id is int) return id;
+    if (id is num) return id.toInt();
+    return int.tryParse(id?.toString() ?? '');
+  }
+
+  static String _appointmentLabel(Map<String, dynamic> m) {
+    final d = m['date'] ?? '';
+    final t = m['time'] ?? '';
+    final p = m['provider'] is Map ? (m['provider'] as Map)['full_name'] : '';
+    return '$d $t ${p ?? ''}'.trim();
+  }
+
+  Future<dynamic> _fetchAppointmentsForAttach() async {
+    final api = EmrFeaturesApi(widget.apiClient);
+    try {
+      final mine = await api.myAppointments();
+      if (_unwrapAppointmentList(mine).isNotEmpty) return mine;
+    } catch (_) {}
+    try {
+      return await api.allAppointments();
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 401 || e.response?.statusCode == 403) {
+        return await api.myAppointments();
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _openBrowserMeet() async {
+    final roomC = TextEditingController(
+      text: 'docsoncall-${DateTime.now().millisecondsSinceEpoch}',
+    );
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Browser meet'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Opens in your browser (Jitsi by default). Share the room name with the other party.',
+              style: Theme.of(ctx).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: roomC,
+              decoration: const InputDecoration(
+                labelText: 'Room name',
+                hintText: 'letters-numbers-dashes',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Open')),
+        ],
+      ),
+    );
+    final room = roomC.text.trim();
+    _disposeAfterRoute(roomC.dispose);
+    if (go != true || room.isEmpty) return;
+    var base = ApiConfig.videoMeetHost.trim();
+    if (!base.endsWith('/')) base = '$base/';
+    final safe = room.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '-');
+    final uri = Uri.parse('$base$safe');
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!mounted) return;
+    if (!opened) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open browser')),
+      );
+    }
+  }
+
+  Future<void> _showAttachRecordToAppointment() async {
+    var loadingOpen = true;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    try {
+      final apData = await _fetchAppointmentsForAttach();
+      final apList = _unwrapAppointmentList(apData);
+      final records = await MedicalRecordsApi(widget.apiClient).listRecords();
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      loadingOpen = false;
+      if (apList.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No appointments found — book one first.')),
+        );
+        return;
+      }
+      final serverRecords = records.where((r) => int.tryParse(r.id) != null).toList();
+      if (serverRecords.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'No server medical records with numeric IDs. Create or sync records under Medical records first.',
+            ),
+          ),
+        );
+        return;
+      }
+
+      Map<String, dynamic>? firstApRow;
+      for (final m in apList) {
+        if (_appointmentPk(m) != null) {
+          firstApRow = m;
+          break;
+        }
+      }
+      if (firstApRow == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Appointments list had no valid IDs.')),
+        );
+        return;
+      }
+
+      int? selAp = _appointmentPk(firstApRow);
+      int? selRec = int.tryParse(serverRecords.first.id);
+
+      final saved = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx2, setL) {
+            return AlertDialog(
+              title: const Text('Link chart to appointment'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    DropdownButtonFormField<int>(
+                      value: selAp,
+                      decoration: const InputDecoration(labelText: 'Appointment'),
+                      items: [
+                        for (final m in apList)
+                          if (_appointmentPk(m) != null)
+                            DropdownMenuItem(
+                              value: _appointmentPk(m),
+                              child: Text(
+                                _appointmentLabel(m),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                      ],
+                      onChanged: (v) => setL(() => selAp = v),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<int>(
+                      value: selRec,
+                      decoration: const InputDecoration(labelText: 'Server medical record'),
+                      items: [
+                        for (final r in serverRecords)
+                          DropdownMenuItem(
+                            value: int.parse(r.id),
+                            child: Text(r.title, maxLines: 2, overflow: TextOverflow.ellipsis),
+                          ),
+                      ],
+                      onChanged: (v) => setL(() => selRec = v),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                FilledButton(
+                  onPressed: selAp != null && selRec != null
+                      ? () => Navigator.pop(ctx, true)
+                      : null,
+                  child: const Text('Save link'),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+      if (saved != true || selAp == null || selRec == null) return;
+      await EmrFeaturesApi(widget.apiClient).patchAppointmentMedicalRecord(
+        appointmentId: selAp!,
+        medicalRecordId: selRec!,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Linked record to appointment on the server.')),
+      );
+    } catch (e) {
+      if (mounted && loadingOpen) {
+        Navigator.of(context).pop();
+        loadingOpen = false;
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not link: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final r = _latest;
@@ -552,6 +772,15 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _openBrowserMeet,
+                      icon: const Icon(Icons.video_camera_front_outlined),
+                      label: const Text('Meet in browser (Jitsi)'),
+                    ),
                   ),
                   const SizedBox(height: 10),
                   Row(
@@ -792,25 +1021,26 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
           ),
           const SizedBox(height: 14),
           FilledButton.icon(
-            onPressed: r == null
-                ? null
-                : () {
-                    widget.onNavigateToShellTab?.call(17);
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Medical records — sync when online to update the server copy.',
-                        ),
-                      ),
-                    );
-                  },
-            icon: const Icon(Icons.cloud_upload_outlined),
-            label: const Text('Attach record to online visit'),
+            onPressed: _showAttachRecordToAppointment,
+            icon: const Icon(Icons.link_rounded),
+            label: const Text('Link server chart to appointment'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () {
+              widget.onNavigateToShellTab?.call(17);
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Opened Medical records tab.')),
+              );
+            },
+            icon: const Icon(Icons.folder_shared_outlined),
+            label: const Text('Open Medical records'),
           ),
           const SizedBox(height: 10),
           Text(
-            'Video/Audio open WhatsApp. Triage JSON/text/PDF use the triage section below. Cloud visit attach is still pending.',
+            'WhatsApp = phone app. Browser meet uses VIDEO_MEET_HOST (default Jitsi). '
+            'Link chart sends PATCH to the EMR server (record must exist there).',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Colors.grey.shade700,
                 ),

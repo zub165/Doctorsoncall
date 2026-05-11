@@ -46,6 +46,7 @@ urlpatterns = [
     path("imports/merge/", views.import_merge),
     path("appointments/mine/", views.appointment_list),
     path("appointments/all/", views.appointment_all),
+    path("appointments/<int:pk>/", views.appointment_detail),
     path("appointments/", views.appointment_create),
     path("auth/change-password/", views.change_password),
     path("auth/password-reset/request/", views.password_reset_request),

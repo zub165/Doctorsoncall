@@ -166,6 +166,18 @@ class EmrFeaturesApi {
     return r.data;
   }
 
+  /// Links a server [MedicalRecord] to an appointment (`PATCH …/appointments/<id>/`).
+  Future<void> patchAppointmentMedicalRecord({
+    required int appointmentId,
+    required int medicalRecordId,
+  }) async {
+    await _c.raw.patch<dynamic>(
+      '${ApiPaths.storeAppointment}$appointmentId/',
+      data: {'medical_record_id': medicalRecordId},
+      options: Options(contentType: Headers.jsonContentType),
+    );
+  }
+
   /// Staff PATCH `…/appointments/<id>/` — keys `date`, `time`, `status` (maps to approved on server).
   Future<void> adminPatchAppointment(int id, Map<String, dynamic> patch) async {
     await _c.raw.patch<dynamic>(

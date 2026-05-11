@@ -53,6 +53,12 @@ class ApiConfig {
     'API_USER_ME_PATH',
     defaultValue: 'user-data/',
   );
+
+  /// In-browser group video (default Jitsi). Room name is appended as a single path segment.
+  static const String videoMeetHost = String.fromEnvironment(
+    'VIDEO_MEET_HOST',
+    defaultValue: 'https://meet.jit.si/',
+  );
 }
 
 /// Standard header values for the Django REST JSON API (single source of truth: `GET …/api/schema/`).
