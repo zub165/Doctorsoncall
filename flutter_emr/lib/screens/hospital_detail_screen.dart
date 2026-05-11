@@ -14,6 +14,8 @@ class HospitalDetailScreen extends StatelessWidget {
     required this.uuid,
     /// Row from the hospitals list — used when detail API 404s (e.g. synthetic `h_lat_lng` id or Maps-only `place_id`).
     this.listSnapshot,
+    /// When set (e.g. from [HospitalsListScreen]), opens shell booking after optional pop.
+    this.onBookAppointment,
   });
 
   final EmergencyApiClient apiClient;
@@ -21,6 +23,9 @@ class HospitalDetailScreen extends StatelessWidget {
 
   /// Optional hospital row from list tap — avoids blank detail when server has no matching id.
   final Hospital? listSnapshot;
+
+  /// Wired from shell to jump to **Book appointment** (tab index 8).
+  final VoidCallback? onBookAppointment;
 
   @override
   Widget build(BuildContext context) {
@@ -56,6 +61,7 @@ class HospitalDetailScreen extends StatelessWidget {
                       apiClient: apiClient,
                       uuid: uuid,
                       listSnapshot: listSnapshot,
+                      onBookAppointment: onBookAppointment,
                     ),
                   ),
                 );
@@ -231,7 +237,16 @@ class HospitalDetailScreen extends StatelessWidget {
                         width: double.infinity,
                         height: 50,
                         child: FilledButton.icon(
-                          onPressed: () {},
+                          onPressed: onBookAppointment ??
+                              () {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Open the menu and choose Book appointment to schedule a visit.',
+                                    ),
+                                  ),
+                                );
+                              },
                           icon: const Icon(Icons.calendar_month_rounded),
                           label: const Text('Book appointment'),
                         ),

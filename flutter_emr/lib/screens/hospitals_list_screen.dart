@@ -12,9 +12,16 @@ import 'hospital_detail_screen.dart';
 import 'osm_tools_screen.dart';
 
 class HospitalsListScreen extends StatefulWidget {
-  const HospitalsListScreen({super.key, required this.apiClient});
+  const HospitalsListScreen({
+    super.key,
+    required this.apiClient,
+    this.onNavigateToShellTab,
+  });
 
   final EmergencyApiClient apiClient;
+
+  /// Opens an [AppShell] drawer tab (e.g. Book appointment after viewing a hospital).
+  final ValueChanged<int>? onNavigateToShellTab;
 
   @override
   State<HospitalsListScreen> createState() => _HospitalsListScreenState();
@@ -231,6 +238,12 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
                                 apiClient: widget.apiClient,
                                 uuid: h.id,
                                 listSnapshot: h,
+                                onBookAppointment: widget.onNavigateToShellTab == null
+                                    ? null
+                                    : () {
+                                        Navigator.of(context).pop();
+                                        widget.onNavigateToShellTab!(8);
+                                      },
                               ),
                             ),
                           );
@@ -270,6 +283,12 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
                           apiClient: widget.apiClient,
                           uuid: h.id,
                           listSnapshot: h,
+                          onBookAppointment: widget.onNavigateToShellTab == null
+                              ? null
+                              : () {
+                                  Navigator.of(context).pop();
+                                  widget.onNavigateToShellTab!(8);
+                                },
                         ),
                       ),
                     );

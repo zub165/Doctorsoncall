@@ -258,126 +258,14 @@ class _AdminTab extends StatelessWidget {
       );
     }
 
-    final mockData = List.generate(5, (i) => {
-          'id': i + 1,
-          'name': '$title Item ${i + 1}',
-          'status': i % 2 == 0 ? 'Active' : 'Inactive'
-        });
-
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        // Header Card
-        Card(
-          color: const Color(0xFFD32F2F).withValues(alpha: 0.1),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD32F2F).withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(icon, color: const Color(0xFFD32F2F), size: 28),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-                      Text('Manage ${title.toLowerCase()} records', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-
-        // Action Buttons
-        Row(
-          children: [
-            Expanded(
-              child: ElevatedButton.icon(
-                onPressed: () {},
-                icon: const Icon(Icons.add),
-                label: const Text('Add New'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFD32F2F),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () {},
-                icon: const Icon(Icons.filter_list),
-                label: const Text('Filter'),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-
-        // Data List
-        Text('Recent Records', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-        const SizedBox(height: 12),
-        ...mockData.map((item) => Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ListTile(
-            leading: CircleAvatar(
-              backgroundColor: const Color(0xFFD32F2F).withValues(alpha: 0.1),
-              child: Text(item['id'].toString(), style: const TextStyle(color: Color(0xFFD32F2F), fontWeight: FontWeight.bold)),
-            ),
-            title: Text(item['name']?.toString() ?? '', style: const TextStyle(fontWeight: FontWeight.w500)),
-            subtitle: Text('ID: ${item['id']}'),
-            trailing: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: item['status'] == 'Active' ? const Color(0xFF4CAF50).withValues(alpha: 0.1) : Colors.grey.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                item['status']?.toString() ?? '',
-                style: TextStyle(
-                  color: item['status'] == 'Active' ? const Color(0xFF4CAF50) : Colors.grey,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-            onTap: () {},
-          ),
-        )),
-        const SizedBox(height: 16),
-
-        // Summary Stats
-        Row(
-          children: [
-            Expanded(child: _buildStatCard('Total', '${mockData.length}', const Color(0xFF2196F3))),
-            const SizedBox(width: 12),
-            Expanded(child: _buildStatCard('Active', '${mockData.where((e) => e['status'] == 'Active').length}', const Color(0xFF4CAF50))),
-            const SizedBox(width: 12),
-            Expanded(child: _buildStatCard('Inactive', '${mockData.where((e) => e['status'] == 'Inactive').length}', Colors.grey)),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatCard(String label, String value, Color color) {
-    return Card(
+    // All known [_tabs] entries return above; this is a safe fallback if tabs change.
+    return Center(
       child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          children: [
-            Text(value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: color)),
-            Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-          ],
+        padding: const EdgeInsets.all(24),
+        child: Text(
+          'Admin section “$title” is not wired yet.',
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.bodyLarge,
         ),
       ),
     );

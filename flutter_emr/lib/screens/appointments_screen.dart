@@ -30,6 +30,16 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   DateTime _selectedDate = DateTime.now();
   VoidCallback? _focusListener;
 
+  /// Only patients use in-app booking; staff use the list for assigned bookings.
+  bool get _isPatientUser {
+    final role = (widget.role ?? '').toLowerCase().trim();
+    final isAdmin =
+        role == 'admin' || role == 'administrator' || role == 'staff';
+    final isDoctor =
+        role == 'doctor' || role == 'provider' || role == 'physician';
+    return !isAdmin && !isDoctor;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -162,11 +172,12 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                         ),
                   ),
                   const Spacer(),
-                  TextButton.icon(
-                    onPressed: () => widget.onNavigateToTab?.call(8),
-                    icon: const Icon(Icons.add),
-                    label: const Text('Book'),
-                  ),
+                  if (_isPatientUser)
+                    TextButton.icon(
+                      onPressed: () => widget.onNavigateToTab?.call(8),
+                      icon: const Icon(Icons.add),
+                      label: const Text('Book'),
+                    ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -235,11 +246,23 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 24),
-          ElevatedButton.icon(
-            onPressed: () => widget.onNavigateToTab?.call(8),
-            icon: const Icon(Icons.add),
-            label: const Text('Book Appointment'),
-          ),
+          if (_isPatientUser)
+            ElevatedButton.icon(
+              onPressed: () => widget.onNavigateToTab?.call(8),
+              icon: const Icon(Icons.add),
+              label: const Text('Book Appointment'),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text(
+                'No bookings yet. Patients book from the menu; staff see assigned visits here.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.grey.shade700,
+                    ),
+              ),
+            ),
         ],
       ),
     );

@@ -4,6 +4,41 @@ import '../services/emergency_api_client.dart';
 import '../services/emr_features_api.dart';
 import '../theme/app_theme.dart';
 
+void _showDiscoveryDetailSheet(
+  BuildContext context,
+  String title,
+  Map<String, dynamic> item,
+) {
+  showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (ctx) {
+      final lines = item.entries.map((e) => '${e.key}: ${e.value}').join('\n');
+      return DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.42,
+        minChildSize: 0.22,
+        maxChildSize: 0.92,
+        builder: (_, scroll) => ListView(
+          controller: scroll,
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          children: [
+            Text(
+              title,
+              style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+            const SizedBox(height: 12),
+            SelectableText(lines.isEmpty ? '(no fields)' : lines),
+          ],
+        ),
+      );
+    },
+  );
+}
+
 /// Bundles Laravel parity APIs: **countries**, **specialities**, **providers**.
 class DiscoveryScreen extends StatelessWidget {
   const DiscoveryScreen({super.key, required this.apiClient});
@@ -40,8 +75,8 @@ class DiscoveryScreen extends StatelessWidget {
             child: TabBarView(
               children: [
                 _CountriesTab(apiClient: apiClient),
-                _buildSpecialitiesTab(),
-                _buildProvidersTab(),
+                _buildSpecialitiesTab(context),
+                _buildProvidersTab(context),
               ],
             ),
           ),
@@ -50,13 +85,14 @@ class DiscoveryScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSpecialitiesTab() {
+  Widget _buildSpecialitiesTab(BuildContext context) {
     return _ListTab(future: EmrFeaturesApi(apiClient).specialities(), itemBuilder: (item) {
       final name = item['speciality_name'] ?? item['name'] ?? item['title'] ?? 'Unknown';
       final img = item['speciality_image'] ?? item['image'] ?? item['icon'] ?? '';
       return Card(
         margin: const EdgeInsets.only(bottom: 8),
         child: ListTile(
+          onTap: () => _showDiscoveryDetailSheet(context, name.toString(), item),
           leading: Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(color: const Color(0xFF4CAF50).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
@@ -70,7 +106,7 @@ class DiscoveryScreen extends StatelessWidget {
     });
   }
 
-  Widget _buildProvidersTab() {
+  Widget _buildProvidersTab(BuildContext context) {
     return _ListTab(future: EmrFeaturesApi(apiClient).providers(), itemBuilder: (item) {
       final fullName = (item['full_name'] ?? item['name'] ?? item['fullName'] ?? 'Provider').toString();
       final email = (item['email'] ?? '').toString();
@@ -79,6 +115,11 @@ class DiscoveryScreen extends StatelessWidget {
       return Card(
         margin: const EdgeInsets.only(bottom: 8),
         child: ListTile(
+          onTap: () => _showDiscoveryDetailSheet(
+            context,
+            fullName.isEmpty ? 'Provider' : fullName,
+            item,
+          ),
           leading: CircleAvatar(
             backgroundColor: const Color(0xFF2196F3),
             child: Text(
@@ -296,7 +337,11 @@ class _CountriesTabState extends State<_CountriesTab> {
                     borderRadius: BorderRadius.circular(18),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(18),
-                      onTap: () {},
+                      onTap: () => _showDiscoveryDetailSheet(
+                        context,
+                        row.name,
+                        {'name': row.name, 'code': row.code},
+                      ),
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                         decoration: BoxDecoration(

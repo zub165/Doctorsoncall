@@ -23,10 +23,18 @@ import '../theme/app_theme.dart';
 /// - Shows latest local medical record (offline-first).
 /// - Can run best-effort sync before starting the visit.
 class DoctorVisitScreen extends StatefulWidget {
-  const DoctorVisitScreen({super.key, required this.apiClient, required this.offlineDb});
+  const DoctorVisitScreen({
+    super.key,
+    required this.apiClient,
+    required this.offlineDb,
+    this.onNavigateToShellTab,
+  });
 
   final EmergencyApiClient apiClient;
   final OfflineDb offlineDb;
+
+  /// Switch main shell tab (e.g. open **Medical records** after attach).
+  final ValueChanged<int>? onNavigateToShellTab;
 
   @override
   State<DoctorVisitScreen> createState() => _DoctorVisitScreenState();
@@ -111,12 +119,6 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
     } finally {
       if (mounted) setState(() => _syncing = false);
     }
-  }
-
-  void _todo(String label) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$label (coming soon)')),
-    );
   }
 
   /// Dispose dialog-owned controllers after the route has finished popping (avoids
@@ -790,7 +792,19 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
           ),
           const SizedBox(height: 14),
           FilledButton.icon(
-            onPressed: r == null ? null : () => _todo('Attach record to online visit'),
+            onPressed: r == null
+                ? null
+                : () {
+                    widget.onNavigateToShellTab?.call(17);
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Medical records — sync when online to update the server copy.',
+                        ),
+                      ),
+                    );
+                  },
             icon: const Icon(Icons.cloud_upload_outlined),
             label: const Text('Attach record to online visit'),
           ),

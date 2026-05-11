@@ -108,7 +108,7 @@ class _AppShellState extends State<AppShell> {
               _sectionLabel(context, 'Care'),
               _tile(context, 6, Icons.event_note_outlined, 'Appointments'),
               if (!isPatient) _tile(context, 7, Icons.video_call_outlined, 'Doctor visit'),
-              _tile(context, 8, Icons.add_circle_outline, 'Book appointment'),
+              if (isPatient) _tile(context, 8, Icons.add_circle_outline, 'Book appointment'),
               _tile(context, 9, Icons.explore_outlined, 'Discovery'),
               if (isAdmin || isDoctor) _tile(context, 10, Icons.link_outlined, 'Patients ↔ providers'),
               _tile(context, 11, Icons.feedback_outlined, 'Feedback'),
@@ -174,7 +174,10 @@ class _AppShellState extends State<AppShell> {
             apiClient: c,
             onNavigateToTab: (i) => setState(() => _index = i),
           ),
-          HospitalsListScreen(apiClient: c),
+          HospitalsListScreen(
+            apiClient: c,
+            onNavigateToShellTab: (i) => setState(() => _index = i),
+          ),
           OsmToolsScreen(apiClient: c),
           CoursesScreen(apiClient: c),
           AiAssistantScreen(apiClient: c),
@@ -185,7 +188,11 @@ class _AppShellState extends State<AppShell> {
             focusDate: _appointmentFocusDate,
             role: widget.role,
           ),
-          DoctorVisitScreen(apiClient: c, offlineDb: widget.offlineDb),
+          DoctorVisitScreen(
+            apiClient: c,
+            offlineDb: widget.offlineDb,
+            onNavigateToShellTab: (i) => setState(() => _index = i),
+          ),
           BookAppointmentScreen(
             apiClient: c,
             focusDate: _appointmentFocusDate,
