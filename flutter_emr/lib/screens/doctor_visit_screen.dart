@@ -1,10 +1,15 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/material.dart';
 import 'package:drift/drift.dart' hide Column;
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/medical_record.dart';
@@ -114,6 +119,117 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
     );
   }
 
+  /// Dispose dialog-owned controllers after the route has finished popping (avoids
+  /// `InheritedWidget` / `_dependents` assertions during teardown).
+  void _disposeAfterRoute(void Function() disposeFn) {
+    WidgetsBinding.instance.addPostFrameCallback((_) => disposeFn());
+  }
+
+  Rect _shareSheetOrigin() {
+    final sz = MediaQuery.sizeOf(context);
+    return Rect.fromLTWH(0, 0, sz.width, sz.height);
+  }
+
+  Future<void> _shareTriageText() async {
+    await SharePlus.instance.share(
+      ShareParams(
+        text: _triageToText(),
+        subject: 'Triage',
+        sharePositionOrigin: _shareSheetOrigin(),
+      ),
+    );
+  }
+
+  Future<void> _exportTriagePdfShare() async {
+    try {
+      final doc = pw.Document();
+      final body = _triageToText();
+      doc.addPage(
+        pw.MultiPage(
+          build: (ctx) => [
+            pw.Text('Triage', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 8),
+            pw.Paragraph(text: body),
+          ],
+        ),
+      );
+      final dir = await getTemporaryDirectory();
+      final path = '${dir.path}/triage_${DateTime.now().millisecondsSinceEpoch}.pdf';
+      final file = File(path);
+      await file.writeAsBytes(await doc.save());
+      if (!mounted) return;
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(path)],
+          subject: 'Triage export',
+          sharePositionOrigin: _shareSheetOrigin(),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('PDF export failed: $e')),
+      );
+    }
+  }
+
+  Future<void> _pickUploadFiles() async {
+    final r = await FilePicker.platform.pickFiles(allowMultiple: true);
+    if (r == null || r.files.isEmpty) return;
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Selected ${r.files.length} file(s). Cloud attach for visits is not wired yet.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _importTriageFromFile() async {
+    final r = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['json', 'txt'],
+      withData: kIsWeb,
+    );
+    if (r == null || r.files.isEmpty) return;
+    final f = r.files.first;
+    late final String content;
+    try {
+      if (f.bytes != null) {
+        content = utf8.decode(f.bytes!);
+      } else if (f.path != null && f.path!.isNotEmpty) {
+        content = await File(f.path!).readAsString();
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not read that file')),
+        );
+        return;
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not read that file')),
+      );
+      return;
+    }
+    try {
+      final m = jsonDecode(content);
+      if (m is! Map) throw const FormatException('not a json object');
+      _applyTriageMap(Map<String, dynamic>.from(m));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Imported triage from file')),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('File must be triage JSON (same as Export JSON)')),
+      );
+    }
+  }
+
   Future<void> _whatsAppCall({required String kind}) async {
     final phoneC = TextEditingController();
     final messageC = TextEditingController(text: 'Hi, can we do a $kind call now?');
@@ -154,8 +270,10 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
       ),
     );
     final msg = messageC.text;
-    phoneC.dispose();
-    messageC.dispose();
+    _disposeAfterRoute(() {
+      phoneC.dispose();
+      messageC.dispose();
+    });
 
     final clean = (phone ?? '').replaceAll(RegExp(r'[^0-9+]'), '').trim();
     if (clean.isEmpty) return;
@@ -245,6 +363,26 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
     );
   }
 
+  void _applyTriageMap(Map<String, dynamic> map) {
+    void setNum(TextEditingController t, dynamic v) {
+      if (v == null) return;
+      t.text = v.toString();
+    }
+
+    setNum(_heightCm, map['height_cm']);
+    setNum(_weightKg, map['weight_kg']);
+    setNum(_tempC, map['temp_c']);
+    setNum(_bpSys, map['bp_sys']);
+    setNum(_bpDia, map['bp_dia']);
+    setNum(_pulse, map['pulse_bpm']);
+    setNum(_resp, map['resp_rate']);
+    setNum(_spo2, map['spo2_pct']);
+    setNum(_glucose, map['glucose_mg_dl']);
+    _triageNotes.text = (map['notes'] ?? '').toString();
+    final p = map['skin_photo_path']?.toString();
+    setState(() => _skinPhotoPath = (p != null && p.isNotEmpty) ? p : null);
+  }
+
   Future<void> _importTriageJson() async {
     final c = TextEditingController();
     final text = await showDialog<String>(
@@ -262,30 +400,12 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
         ],
       ),
     );
-    c.dispose();
+    _disposeAfterRoute(c.dispose);
     if (text == null || text.trim().isEmpty) return;
     try {
       final m = jsonDecode(text);
       if (m is! Map) throw const FormatException('not a json object');
-      final map = Map<String, dynamic>.from(m);
-
-      void setNum(TextEditingController t, dynamic v) {
-        if (v == null) return;
-        t.text = v.toString();
-      }
-
-      setNum(_heightCm, map['height_cm']);
-      setNum(_weightKg, map['weight_kg']);
-      setNum(_tempC, map['temp_c']);
-      setNum(_bpSys, map['bp_sys']);
-      setNum(_bpDia, map['bp_dia']);
-      setNum(_pulse, map['pulse_bpm']);
-      setNum(_resp, map['resp_rate']);
-      setNum(_spo2, map['spo2_pct']);
-      setNum(_glucose, map['glucose_mg_dl']);
-      _triageNotes.text = (map['notes'] ?? '').toString();
-      final p = map['skin_photo_path']?.toString();
-      setState(() => _skinPhotoPath = (p != null && p.isNotEmpty) ? p : null);
+      _applyTriageMap(Map<String, dynamic>.from(m));
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -320,25 +440,30 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
   Widget build(BuildContext context) {
     final r = _latest;
     final bmi = _bmi;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Doctor visit'),
-        actions: [
-          IconButton(
-            onPressed: _syncing ? null : _syncNow,
-            icon: _syncing
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.sync_rounded),
-            tooltip: 'Sync',
+    // Title lives on [AppShell] AppBar only — avoid nested AppBars (duplicate "Doctor visit").
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: IconButton(
+              onPressed: _syncing ? null : _syncNow,
+              icon: _syncing
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.sync_rounded),
+              tooltip: 'Sync offline data',
+            ),
           ),
-        ],
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+        ),
+        Expanded(
+          child: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         children: [
           Card(
             child: Padding(
@@ -431,7 +556,7 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
                     children: [
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: () => _todo('Upload files'),
+                          onPressed: _pickUploadFiles,
                           icon: const Icon(Icons.attach_file_rounded),
                           label: const Text('Upload'),
                         ),
@@ -439,7 +564,7 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: () => _todo('Import PDF/TXT/DOCX'),
+                          onPressed: _importTriageFromFile,
                           icon: const Icon(Icons.file_open_outlined),
                           label: const Text('Import'),
                         ),
@@ -451,7 +576,7 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
                     children: [
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: () => _todo('Export as PDF'),
+                          onPressed: _exportTriagePdfShare,
                           icon: const Icon(Icons.picture_as_pdf_outlined),
                           label: const Text('Export PDF'),
                         ),
@@ -459,7 +584,7 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
                       const SizedBox(width: 12),
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: () => _todo('Export as text'),
+                          onPressed: _shareTriageText,
                           icon: const Icon(Icons.text_snippet_outlined),
                           label: const Text('Export text'),
                         ),
@@ -671,13 +796,15 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
           ),
           const SizedBox(height: 10),
           Text(
-            'Next: we’ll wire real calling (Agora/Twilio/Jitsi), file picking/upload, and PDF/DOCX import/export.',
+            'Video/Audio open WhatsApp. Triage JSON/text/PDF use the triage section below. Cloud visit attach is still pending.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Colors.grey.shade700,
                 ),
           ),
         ],
-      ),
+          ),
+        ),
+      ],
     );
   }
 
