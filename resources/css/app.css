@@ -659,3 +659,157 @@ a {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* ── Mobile / tablet (iPhone, iPad) ───────────────────────────────────── */
+
+#docsoncalls-root {
+  min-height: 100%;
+}
+
+/* Hamburger only when sidebar is off-canvas */
+.dc-menu-btn {
+  display: none;
+}
+
+.dc-map-wrap {
+  height: clamp(220px, 42vh, 420px);
+  min-height: 220px;
+}
+
+.dc-chat-log {
+  display: grid;
+  gap: 10px;
+  max-height: min(52vh, 420px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 4px;
+}
+
+.dc-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.dc-toolbar > .dc-input {
+  flex: 1 1 12rem;
+  min-width: 0;
+  width: auto;
+}
+
+.dc-toolbar .dc-btn {
+  flex: 0 0 auto;
+}
+
+/* iOS: 16px+ inputs avoid focus zoom */
+@media (max-width: 920px) {
+  .dc-input,
+  .dc-btn,
+  .dc-chip,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  .dc-menu-btn {
+    display: grid;
+  }
+
+  .dc-main {
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+    max-width: none;
+  }
+
+  .dc-topbar {
+    padding-top: max(0px, env(safe-area-inset-top));
+  }
+
+  .dc-sidebar {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+
+  .dc-hero-welcome {
+    font-size: 22px;
+  }
+
+  .dc-action {
+    height: 72px;
+    font-size: 14px;
+  }
+
+  .dc-list-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dc-list-row > .dc-list-right,
+  .dc-list-row > div:not(.dc-list-left) {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .dc-list-title,
+  .dc-list-sub {
+    white-space: normal;
+  }
+
+  .dc-appbar-title h2 {
+    font-size: 16px;
+  }
+
+  .dc-chip-row .dc-chip[style*='margin-left: auto'] {
+    margin-left: 0 !important;
+  }
+}
+
+/* iPad portrait / small tablet: keep 2-column tiles where helpful */
+@media (min-width: 521px) and (max-width: 920px) {
+  .dc-grid-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dc-tabs {
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  }
+
+  .dc-time-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* iPad landscape / desktop: comfortable reading width */
+@media (min-width: 921px) {
+  .dc-main {
+    padding-left: max(22px, env(safe-area-inset-left));
+    padding-right: max(22px, env(safe-area-inset-right));
+  }
+}
+
+/* Narrow phones */
+@media (max-width: 380px) {
+  .dc-brand-subtitle {
+    display: none;
+  }
+
+  .dc-cal-day {
+    height: 34px;
+    font-size: 13px;
+  }
+}
+
+/* Leaflet: prevent map overflow on iOS */
+.leaflet-container {
+  width: 100%;
+  touch-action: pan-x pan-y;
+}
+
+@supports (-webkit-touch-callout: none) {
+  .dc-map-wrap .leaflet-container {
+    min-height: 220px;
+  }
+}

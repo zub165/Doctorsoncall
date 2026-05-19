@@ -110,7 +110,7 @@ export const ApiPaths = {
   providerApply: 'providers/apply/',
   registrationsPending: 'registrations/pending/',
   registrationsApprove: 'registrations/approve/',
-  replicateToken: 'integrations/replicate-token/',
+  ollamaStatus: 'integrations/ollama-status/',
   /** Public: Ollama `/api/tags` ping only (always 200 when Django responds). */
   aiAssistStatus: 'integrations/ai-assist-status/',
   /** Authenticated: model list + `model_available`. */

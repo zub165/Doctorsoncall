@@ -152,7 +152,7 @@ export function AppShell() {
         <div className="dc-topbar">
           <div className="dc-topbar-left">
             <button
-              className="dc-icon-btn"
+              className="dc-icon-btn dc-menu-btn"
               aria-label="Open menu"
               onClick={() => setDrawerOpen(true)}
               title="Menu"
@@ -983,16 +983,7 @@ function AiAssistant() {
       </div>
 
       <div className="dc-card" style={{ padding: 16 }}>
-        <div
-          ref={listRef}
-          style={{
-            display: 'grid',
-            gap: 10,
-            maxHeight: 320,
-            overflow: 'auto',
-            paddingRight: 4,
-          }}
-        >
+        <div ref={listRef} className="dc-chat-log">
           {history.slice(-40).map((m, idx) => (
             <div
               key={idx}
@@ -1793,7 +1784,7 @@ function PatientsProviders() {
 function Settings({ isAdmin }) {
   const health = useApiCall(() => api.get(ApiPaths.health).then((r) => r.status), []);
   const me = useApiCall(() => api.get(ApiPaths.docOnCallMe).then((r) => r.data), []);
-  const repl = useApiCall(() => api.get(ApiPaths.replicateToken).then((r) => r.data), []);
+  const ollama = useApiCall(() => api.get(ApiPaths.ollamaStatus).then((r) => r.data), []);
   const [wa, setWa] = React.useState({ loading: false, value: '', saved: '', error: '' });
 
   React.useEffect(() => {
@@ -1834,13 +1825,17 @@ function Settings({ isAdmin }) {
       ? 'Failed'
       : `OK (role: ${(me.data?.data?.role ?? me.data?.role ?? 'unknown').toString()})`;
 
-  const replLabel = repl.loading
+  const ollamaInner = ollama.data?.data ?? ollama.data ?? {};
+  const ollamaLinked =
+    ollamaInner?.linked === true ||
+    (ollamaInner?.reachable === true && ollamaInner?.model_available === true);
+  const ollamaLabel = ollama.loading
     ? '…'
-    : repl.error
-      ? 'Not configured'
-      : (repl.data?.configured === true || repl.data?.data?.configured === true)
-        ? 'Configured'
-        : 'Not configured';
+    : ollama.error
+      ? 'Not linked'
+      : ollamaLinked
+        ? `Linked · ${(ollamaInner?.configured_model || 'Llama').toString()}`
+        : (ollamaInner?.message || 'Not linked').toString();
 
   return (
     <div className="dc-row" style={{ gap: 14 }}>
@@ -1891,8 +1886,8 @@ function Settings({ isAdmin }) {
             <div className="dc-list-left">
               <div className="dc-avatar">🤖</div>
               <div className="dc-list-text">
-                <div className="dc-list-title">AI provider (Replicate)</div>
-                <div className="dc-list-sub">{replLabel}</div>
+                <div className="dc-list-title">Llama on GoDaddy (Ollama)</div>
+                <div className="dc-list-sub">{ollamaLabel}</div>
               </div>
             </div>
           </div>

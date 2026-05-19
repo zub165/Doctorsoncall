@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "resources/js/docsoncalls/**"
+      - "resources/css/**"
       - "docsoncalls-pages/**"
       - "vite.pages.config.js"
       - "package.json"

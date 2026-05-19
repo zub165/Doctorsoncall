@@ -297,7 +297,7 @@ export function Hospitals() {
       ) : (
         <div className="dc-row" style={{ gap: 14 }}>
           <div className="dc-card" style={{ padding: 0, overflow: 'hidden' }}>
-            <div style={{ height: 260, background: '#f1f5f9' }}>
+            <div className="dc-map-wrap" style={{ background: '#f1f5f9' }}>
               <MapContainer
                 center={mapCenter}
                 zoom={10}
