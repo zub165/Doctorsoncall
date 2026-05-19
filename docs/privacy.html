@@ -45,10 +45,44 @@
         <li>Comply with legal obligations</li>
       </ul>
 
+      <h2>AI assistant (third-party AI processing)</h2>
+      <p>
+        The app includes optional AI features (symptom questions, record summaries, SOAP note drafting).
+        <strong>We ask for your permission in the app before any personal or health-related text is sent for AI processing.</strong>
+      </p>
+      <h3>What data may be sent</h3>
+      <ul>
+        <li>Text you type or dictate (symptoms, questions, clinical notes, SOAP drafts)</li>
+        <li>Medical record or document excerpts you choose to summarize</li>
+        <li>Minimal context needed to answer (for example, patient vs provider role)</li>
+      </ul>
+      <h3>Who receives it</h3>
+      <ul>
+        <li><strong>Operator:</strong> Innovator Generation (“Docs On Call”)</li>
+        <li><strong>API:</strong> <code>https://api.docsoncalls.com/api/medical-records/ai-assist/</code> (HTTPS)</li>
+        <li><strong>AI processor:</strong> Ollama (open-source large language model) running on servers we operate. We do not send your data to consumer chatbot services (such as ChatGPT) for advertising or model training.</li>
+      </ul>
+      <h3>How we collect it</h3>
+      <p>
+        Only when you submit a message or tap an AI action <em>after</em> you allow data sharing in the app.
+        You may revoke consent in <strong>Settings → AI data sharing</strong>.
+      </p>
+      <h3>How it is used</h3>
+      <p>
+        To generate general health information or documentation help. AI output is not a diagnosis or emergency service.
+        Do not rely on AI for urgent or life-threatening symptoms—contact emergency services.
+      </p>
+      <h3>Protection</h3>
+      <p>
+        Data is encrypted in transit (TLS). Access is limited to authenticated users and operational staff under the same
+        privacy and security obligations described in this policy. Our AI infrastructure is operated under our control
+        and is not licensed to third parties for their own marketing or training.
+      </p>
+
       <h2>Sharing</h2>
       <p>
         We do not sell your personal health information. Data may be shared with healthcare providers you
-        choose, service providers that host our API, and authorities when required by law.
+        choose, service providers that host our API (including AI inference on our servers), and authorities when required by law.
       </p>
 
       <h2>Storage &amp; security</h2>
