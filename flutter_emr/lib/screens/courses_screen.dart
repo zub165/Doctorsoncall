@@ -214,10 +214,14 @@ class _CoursesScreenState extends State<CoursesScreen>
           color: AppColors.primary,
           child: TabBar(
             controller: _tabController,
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
             labelColor: Colors.white,
             unselectedLabelColor: Colors.white70,
             indicatorColor: Colors.white,
             indicatorWeight: 3,
+            labelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+            unselectedLabelStyle: const TextStyle(fontSize: 11),
             tabs: [
               for (var i = 0; i < _tabTitles.length; i++)
                 Tab(

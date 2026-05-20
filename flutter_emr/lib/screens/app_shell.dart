@@ -84,7 +84,13 @@ class _AppShellState extends State<AppShell> {
     final isPatient = !isAdmin && !isDoctor; // default
 
     return Scaffold(
-      appBar: AppBar(title: Text(_titles[_index])),
+      appBar: AppBar(
+        title: Text(
+          _titles[_index],
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
       drawer: Drawer(
         backgroundColor: AppColors.drawerMuted,
         shape: const RoundedRectangleBorder(

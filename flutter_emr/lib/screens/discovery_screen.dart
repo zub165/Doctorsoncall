@@ -61,15 +61,19 @@ class DiscoveryScreen extends StatelessWidget {
                 end: Alignment.centerRight,
               ),
             ),
-            child: const TabBar(
+            child: TabBar(
+              isScrollable: true,
+              tabAlignment: TabAlignment.start,
               labelColor: Colors.white,
               unselectedLabelColor: Colors.white70,
               indicatorColor: Colors.white,
               dividerColor: Colors.transparent,
-              tabs: [
-                Tab(icon: Icon(Icons.public), text: 'Countries'),
-                Tab(icon: Icon(Icons.medical_services), text: 'Specialities'),
-                Tab(icon: Icon(Icons.people), text: 'Providers'),
+              labelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+              unselectedLabelStyle: const TextStyle(fontSize: 11),
+              tabs: const [
+                Tab(icon: Icon(Icons.public, size: 20), text: 'Countries'),
+                Tab(icon: Icon(Icons.medical_services, size: 20), text: 'Specialities'),
+                Tab(icon: Icon(Icons.people, size: 20), text: 'Providers'),
               ],
             ),
           ),

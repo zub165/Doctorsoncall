@@ -294,6 +294,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<int>(
+                  isExpanded: true,
                   value: _selectedProviderId,
                   items: items,
                   onChanged: _busy ? null : (v) {
@@ -318,7 +319,12 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
             color: const Color(0xFFD32F2F).withValues(alpha: 0.1),
             child: ListTile(
               leading: const CircleAvatar(backgroundColor: Color(0xFFD32F2F), child: Icon(Icons.person, color: Colors.white)),
-              title: Text(selectedProviderName, style: const TextStyle(fontWeight: FontWeight.bold)),
+              title: Text(
+                selectedProviderName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
               subtitle: Text('Provider ID: $_selectedProviderId'),
             ),
           ),

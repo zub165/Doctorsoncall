@@ -627,7 +627,7 @@ class _DoctorSoapNoteScreenState extends State<DoctorSoapNoteScreen> {
       if (!mounted) return;
       final allowed = await ConsentedAiAssist.ensureConsent(context);
       if (!allowed) {
-        showAiConsentDeniedSnackBar(context);
+        if (mounted) showAiConsentDeniedSnackBar(context);
         return;
       }
       if (!mounted) return;

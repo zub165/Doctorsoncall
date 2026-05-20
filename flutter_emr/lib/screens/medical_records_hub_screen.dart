@@ -55,14 +55,33 @@ class _MedicalRecordsHubScreenState extends State<MedicalRecordsHubScreen>
           color: AppColors.primary,
           child: TabBar(
             controller: _tab,
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
             indicatorColor: Colors.white,
             labelColor: Colors.white,
             unselectedLabelColor: Colors.white70,
+            labelStyle: const TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+            unselectedLabelStyle: const TextStyle(fontSize: 11),
             tabs: const [
-              Tab(icon: Icon(Icons.folder_shared_outlined), text: 'Records'),
-              Tab(icon: Icon(Icons.psychology_outlined), text: 'AI assistant'),
-              Tab(icon: Icon(Icons.attach_file_rounded), text: 'Documents'),
-              Tab(icon: Icon(Icons.ios_share_rounded), text: 'Share'),
+              Tab(
+                icon: Icon(Icons.folder_shared_outlined, size: 20),
+                text: 'Records',
+              ),
+              Tab(
+                icon: Icon(Icons.psychology_outlined, size: 20),
+                text: 'AI',
+              ),
+              Tab(
+                icon: Icon(Icons.attach_file_rounded, size: 20),
+                text: 'Docs',
+              ),
+              Tab(
+                icon: Icon(Icons.ios_share_rounded, size: 20),
+                text: 'Share',
+              ),
             ],
           ),
         ),
@@ -373,13 +392,18 @@ class _ShareTabState extends State<_ShareTab> {
                     ),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<int>(
+                      isExpanded: true,
                       value: _providerId,
                       decoration: const InputDecoration(labelText: 'Doctor'),
                       items: _providers
                           .where((p) => p['id'] != null)
                           .map((p) => DropdownMenuItem<int>(
                                 value: int.tryParse('${p['id']}'),
-                                child: Text((p['full_name'] ?? p['name'] ?? 'Provider').toString()),
+                                child: Text(
+                                  (p['full_name'] ?? p['name'] ?? 'Provider').toString(),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ))
                           .toList(),
                       onChanged: _busy ? null : (v) => setState(() => _providerId = v),
@@ -939,13 +963,18 @@ $text
                       ),
                       const SizedBox(height: 10),
                       DropdownButtonFormField<int>(
+                        isExpanded: true,
                         value: _shareProviderId,
                         decoration: const InputDecoration(labelText: 'Doctor'),
                         items: _providers
                             .where((p) => p['id'] != null)
                             .map((p) => DropdownMenuItem<int>(
                                   value: p['id'] is int ? p['id'] as int : int.tryParse('${p['id']}'),
-                                  child: Text((p['full_name'] ?? p['name'] ?? 'Doctor').toString()),
+                                  child: Text(
+                                    (p['full_name'] ?? p['name'] ?? 'Doctor').toString(),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ))
                             .toList(),
                         onChanged: (v) => setState(() => _shareProviderId = v),
@@ -1489,10 +1518,14 @@ $fetched
                         ),
                         title: const Text(
                           'Import via API link',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(fontWeight: FontWeight.w700),
                         ),
                         subtitle: const Text(
                           'Fetch a facility API → AI summary → Admin merges into your file',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
                         trailing: const Icon(Icons.chevron_right_rounded),
                         onTap: _openApiImport,
@@ -1640,7 +1673,12 @@ class _RecordTile extends StatelessWidget {
                 ),
               ),
             if (r.recordType != null)
-              Text(r.recordType!, style: theme.textTheme.bodySmall),
+              Text(
+                r.recordType!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall,
+              ),
             Text(
               _formatDate(r.date),
               style: theme.textTheme.labelSmall?.copyWith(
@@ -1667,6 +1705,8 @@ class _RecordTile extends StatelessWidget {
                     Expanded(
                       child: Text(
                         r.aiHighlight!,
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: Colors.purple.shade900,
                         ),

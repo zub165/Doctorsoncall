@@ -39,6 +39,13 @@ class _VisitContact {
   final int? appointmentId;
 }
 
+String _visitContactOptionLabel(_VisitContact c) {
+  final name = c.displayName.trim();
+  final when = c.appointmentLabel.trim();
+  if (when.isEmpty) return name;
+  return '$name · $when';
+}
+
 /// Doctor visit: local record preview, triage, WhatsApp or browser meet, file tools,
 /// and linking a **server** medical record to an appointment (`PATCH …/appointments/<id>/`).
 ///
@@ -637,11 +644,15 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
             if (_selectedContact != null) ...[
               Text(
                 '${_selectedContact!.roleLabel}: ${_selectedContact!.displayName}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: Theme.of(ctx).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
               ),
               if (_selectedContact!.appointmentLabel.isNotEmpty)
                 Text(
                   'Appointment: ${_selectedContact!.appointmentLabel}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(ctx).textTheme.bodySmall,
                 ),
               const SizedBox(height: 12),
@@ -991,8 +1002,21 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     DropdownButtonFormField<int>(
+                      isExpanded: true,
                       value: selAp,
                       decoration: const InputDecoration(labelText: 'Appointment'),
+                      selectedItemBuilder: (context) => [
+                        for (final m in apList)
+                          if (_appointmentPk(m) != null)
+                            Align(
+                              alignment: AlignmentDirectional.centerStart,
+                              child: Text(
+                                _appointmentLabel(m),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                      ],
                       items: [
                         for (final m in apList)
                           if (_appointmentPk(m) != null)
@@ -1009,8 +1033,20 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<int>(
+                      isExpanded: true,
                       value: selRec,
                       decoration: const InputDecoration(labelText: 'Server medical record'),
+                      selectedItemBuilder: (context) => [
+                        for (final r in serverRecords)
+                          Align(
+                            alignment: AlignmentDirectional.centerStart,
+                            child: Text(
+                              r.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
                       items: [
                         for (final r in serverRecords)
                           DropdownMenuItem(
@@ -1223,6 +1259,7 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
                     )
                   else ...[
                     DropdownButtonFormField<int>(
+                      isExpanded: true,
                       value: _selectedContact == null
                           ? 0
                           : _visitContacts.indexOf(_selectedContact!).clamp(0, _visitContacts.length - 1),
@@ -1230,12 +1267,24 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
                         labelText: _isDoctorRole ? 'Patient for this visit' : 'Doctor for this visit',
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                       ),
+                      selectedItemBuilder: (context) => [
+                        for (var i = 0; i < _visitContacts.length; i++)
+                          Align(
+                            alignment: AlignmentDirectional.centerStart,
+                            child: Text(
+                              _visitContactOptionLabel(_visitContacts[i]),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
                       items: [
                         for (var i = 0; i < _visitContacts.length; i++)
                           DropdownMenuItem(
                             value: i,
                             child: Text(
-                              '${_visitContacts[i].displayName} · ${_visitContacts[i].appointmentLabel}',
+                              _visitContactOptionLabel(_visitContacts[i]),
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),

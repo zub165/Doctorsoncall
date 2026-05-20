@@ -209,6 +209,7 @@ class _OsmToolsScreenState extends State<OsmToolsScreen> {
               )
             else ...[
               DropdownButtonFormField<int>(
+                isExpanded: true,
                 value: _shareProviderId,
                 decoration: const InputDecoration(labelText: 'Doctor'),
                 items: _shareProviders
@@ -217,7 +218,11 @@ class _OsmToolsScreenState extends State<OsmToolsScreen> {
                       if (id == null) return null;
                       return DropdownMenuItem<int>(
                         value: id,
-                        child: Text((p['full_name'] ?? p['name'] ?? 'Doctor').toString()),
+                        child: Text(
+                          (p['full_name'] ?? p['name'] ?? 'Doctor').toString(),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       );
                     })
                     .whereType<DropdownMenuItem<int>>()
@@ -232,6 +237,7 @@ class _OsmToolsScreenState extends State<OsmToolsScreen> {
               if (_shareAppointments.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 DropdownButtonFormField<int?>(
+                  isExpanded: true,
                   value: _shareAppointmentId,
                   decoration: const InputDecoration(
                     labelText: 'Link to appointment (optional)',
