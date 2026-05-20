@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api, ApiPaths, tokenStore, apiBaseUrl } from './api.js';
+import { ensureAiConsent } from './aiConsent.js';
 import { Dashboard } from './screens/Dashboard.jsx';
 import { Hospitals } from './screens/Hospitals.jsx';
 import { Placeholder } from './screens/Placeholder.jsx';
@@ -907,6 +908,16 @@ function AiAssistant() {
         setHistory((h) => [...h, { role: 'assistant', text: instant }]);
       }
 
+      if (!(await ensureAiConsent())) {
+        setHistory((h) => [
+          ...h,
+          {
+            role: 'assistant',
+            text: 'AI sharing was not allowed. You can enable it when prompted, or use Settings on the mobile app.',
+          },
+        ]);
+        return;
+      }
       const { data } = await api.post(ApiPaths.medicalRecordsAiAssist, {
         query: t,
         kind: 'patient_summary',
@@ -1176,6 +1187,10 @@ function SoapNotes() {
     if (!text) return;
     setAi({ loading: true, error: '' });
     try {
+      if (!(await ensureAiConsent())) {
+        setAi({ loading: false, error: 'AI sharing not allowed.', soap: null });
+        return;
+      }
       const { data } = await api.post(ApiPaths.medicalRecordsAiAssist, {
         query: text,
         kind: 'soap',

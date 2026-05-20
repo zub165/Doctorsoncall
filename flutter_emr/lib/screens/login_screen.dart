@@ -7,6 +7,7 @@ import '../services/emergency_api_client.dart';
 import '../services/offline_db.dart';
 import '../services/token_repository.dart';
 import '../theme/app_theme.dart';
+import '../widgets/medical_disclaimer_banner.dart';
 import '../services/user_api.dart';
 import 'app_shell.dart';
 import 'forgot_password_screen.dart';
@@ -180,7 +181,9 @@ class _LoginScreenState extends State<LoginScreen> {
                               height: 1.35,
                             ),
                           ),
-                          const SizedBox(height: 20),
+                          const SizedBox(height: 16),
+                          const MedicalDisclaimerBanner(compact: true),
+                          const SizedBox(height: 16),
                           _LoginPortalPicker(
                             selected: _portal,
                             onChanged: (p) => setState(() => _portal = p),

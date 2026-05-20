@@ -1,23 +1,120 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../config/api_config.dart';
 import '../config/api_paths.dart';
+import '../services/ai_data_sharing_consent.dart';
+import '../services/auth_api.dart';
 import '../services/emergency_api_client.dart';
 import '../services/emr_features_api.dart';
+import '../services/offline_db.dart';
 import '../theme/app_theme.dart';
+import '../utils/api_envelope.dart';
 import 'admin_hub_screen.dart';
+import 'login_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key, required this.apiClient});
+  const SettingsScreen({super.key, required this.apiClient, this.offlineDb});
 
   final EmergencyApiClient apiClient;
+  final OfflineDb? offlineDb;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  late final AuthApi _auth = AuthApi(widget.apiClient);
   late Future<_ConnState> _f = _load();
+  bool _deletingAccount = false;
+
+  static const _deleteSupportEmail = 'zub165@yahoo.com';
+  static const _privacyPolicyUrl = AiDataSharingConsent.privacyPolicyUrl;
+  static const _privacyDeleteUrl = 'https://docsoncalls.com/delete.html';
+
+  Future<void> _confirmDeleteAccount() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete account?'),
+        content: const Text(
+          'This permanently deletes your account and associated data on our servers. '
+          'This cannot be undone.\n\n'
+          'Cancel any Apple subscriptions in Settings → Apple ID → Subscriptions.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() => _deletingAccount = true);
+    try {
+      await _auth.deleteAccount();
+      widget.offlineDb?.close();
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute<void>(
+          builder: (_) => LoginScreen(
+            apiClientOverride: widget.apiClient,
+            offlineDb: widget.offlineDb,
+          ),
+        ),
+        (_) => false,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Your account was deleted.')),
+      );
+    } on DioException catch (e) {
+      final code = e.response?.statusCode;
+      if (!mounted) return;
+      if (code == 403) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              e.response?.data is Map
+                  ? (Map<String, dynamic>.from(e.response!.data as Map)['message']
+                          ?.toString() ??
+                      'This account cannot be deleted in the app.')
+                  : 'This account cannot be deleted in the app.',
+            ),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not delete on server. Email zub165@yahoo.com to request deletion.',
+            ),
+          ),
+        );
+        await launchUrl(
+          Uri.parse(
+            'mailto:$_deleteSupportEmail?subject=Delete%20my%20Docs%20On%20Call%20account',
+          ),
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Delete failed. Try again or email zub165@yahoo.com.'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _deletingAccount = false);
+    }
+  }
 
   Future<_ConnState> _load() async {
     final c = widget.apiClient;
@@ -30,8 +127,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     bool healthOk = false;
     bool meOk = false;
     String role = 'unknown';
-    bool replicateConfigured = false;
-    String replicateMsg = '';
+    bool llamaLinked = false;
+    String llamaMsg = '';
+    String llamaHost = '';
+    String llamaModel = '';
 
     try {
       final r = await c.raw.get<dynamic>(ApiPaths.health);
@@ -59,17 +158,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     try {
-      final res = await api.replicateToken();
-      final root = res is Map ? res : const {};
-      replicateConfigured = (root['configured'] == true) ||
-          ((root['data'] is Map) && ((root['data']['configured'] ?? false) == true));
-      replicateMsg = (root['message'] ??
-              (root['data'] is Map ? root['data']['message'] : null) ??
-              '')
-          .toString();
+      final res = await api.ollamaStatus();
+      final inner = ApiEnvelope.dataMap(res) ?? res;
+      llamaLinked = inner['linked'] == true ||
+          (inner['reachable'] == true && inner['model_available'] == true);
+      llamaMsg = (inner['message'] ?? res['message'] ?? '').toString();
+      llamaHost = (inner['ollama_host'] ?? '').toString();
+      llamaModel = (inner['configured_model'] ?? '').toString();
+      if (llamaMsg.isEmpty && llamaLinked) {
+        llamaMsg = 'Llama ($llamaModel) is linked via Ollama at $llamaHost.';
+      }
     } catch (e) {
-      replicateConfigured = false;
-      replicateMsg = e.toString();
+      llamaLinked = false;
+      llamaMsg = e.toString();
     }
 
     return _ConnState(
@@ -79,8 +180,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       healthOk: healthOk,
       meOk: meOk,
       role: role,
-      replicateConfigured: replicateConfigured,
-      replicateMessage: replicateMsg,
+      llamaLinked: llamaLinked,
+      llamaMessage: llamaMsg,
+      llamaHost: llamaHost,
+      llamaModel: llamaModel,
     );
   }
 
@@ -137,11 +240,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 badText: 'Failed',
               ),
               _statusCard(
-                title: 'AI provider (Replicate)',
-                ok: s.replicateConfigured,
-                okText: 'Configured',
-                badText: 'Not configured',
-                subtitle: s.replicateMessage.isEmpty ? null : s.replicateMessage,
+                title: 'Llama on GoDaddy (Ollama)',
+                ok: s.llamaLinked,
+                okText: s.llamaModel.isNotEmpty
+                    ? 'Linked · ${s.llamaModel}'
+                    : 'Linked',
+                badText: 'Not linked',
+                subtitle: s.llamaMessage.isEmpty
+                    ? (s.llamaHost.isNotEmpty ? 'Host: ${s.llamaHost}' : null)
+                    : s.llamaMessage,
               ),
               if (showAdminHub) ...[
                 const SizedBox(height: 24),
@@ -190,9 +297,86 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ),
               ],
+              const SizedBox(height: 24),
+              Text(
+                'Privacy & account',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              const SizedBox(height: 10),
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.privacy_tip_outlined),
+                  title: const Text('Privacy policy'),
+                  subtitle: const Text('How we use your data, including AI'),
+                  trailing: const Icon(Icons.open_in_new_rounded),
+                  onTap: () => launchUrl(
+                    Uri.parse(_privacyPolicyUrl),
+                    mode: LaunchMode.externalApplication,
+                  ),
+                ),
+              ),
+              Card(
+                child: FutureBuilder<bool>(
+                  future: AiDataSharingConsent.isGranted(),
+                  builder: (context, snap) {
+                    final granted = snap.data == true;
+                    return ListTile(
+                      leading: const Icon(Icons.smart_toy_outlined),
+                      title: const Text('AI data sharing'),
+                      subtitle: Text(
+                        granted
+                            ? 'Allowed — sends typed health text to ${AiDataSharingConsent.operatorName}'
+                            : 'Not allowed — AI features will ask before sending data',
+                      ),
+                      trailing: granted
+                          ? TextButton(
+                              onPressed: () async {
+                                await AiDataSharingConsent.revoke();
+                                if (!context.mounted) return;
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'AI sharing turned off. You will be asked again before the next AI request.',
+                                    ),
+                                  ),
+                                );
+                                setState(() {});
+                              },
+                              child: const Text('Revoke'),
+                            )
+                          : null,
+                    );
+                  },
+                ),
+              ),
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.delete_forever_outlined, color: Color(0xFFC62828)),
+                  title: const Text(
+                    'Delete account',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFFC62828),
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Permanently remove your account and data',
+                  ),
+                  onTap: _deletingAccount ? null : _confirmDeleteAccount,
+                  trailing: _deletingAccount
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.chevron_right_rounded),
+                ),
+              ),
               const SizedBox(height: 8),
               Text(
-                'Pull down to refresh status.',
+                'Pull down to refresh status. Deletion help: $_privacyDeleteUrl',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Colors.grey.shade700,
                     ),
@@ -248,8 +432,10 @@ class _ConnState {
     required this.healthOk,
     required this.meOk,
     required this.role,
-    required this.replicateConfigured,
-    required this.replicateMessage,
+    required this.llamaLinked,
+    required this.llamaMessage,
+    required this.llamaHost,
+    required this.llamaModel,
   });
 
   final String emrBaseUrl;
@@ -258,6 +444,8 @@ class _ConnState {
   final bool healthOk;
   final bool meOk;
   final String role;
-  final bool replicateConfigured;
-  final String replicateMessage;
+  final bool llamaLinked;
+  final String llamaMessage;
+  final String llamaHost;
+  final String llamaModel;
 }

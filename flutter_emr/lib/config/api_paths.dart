@@ -13,8 +13,10 @@ class ApiPaths {
   static const health = 'health/';
   static const authLogin = 'auth/login/';
   static const authRegister = 'auth/register/';
+  static const adminCreateUser = 'admin/users/create/';
   static const authPasswordPolicy = 'auth/password-policy/';
   static const authLogout = 'auth/logout/';
+  static const authDeleteAccount = 'auth/delete-account/';
   static const authPasswordResetRequest = 'auth/password-reset/request/';
   static const authPasswordResetConfirm = 'auth/password-reset/confirm/';
   static const changePassword = 'auth/change-password/';
@@ -55,6 +57,7 @@ class ApiPaths {
   // --- Full list + EMR extras (see FRONTEND_API_DOCUMENTATION.md §13) ---
   static const countriesList = 'countries/';
   static const specialitiesList = 'specialities/';
+  static const specialitiesSeedAvatars = 'specialities/seed-avatars/';
   static const providersList = 'providers/';
   static const patientsList = 'patients/';
   static const patientsProvidersCross = 'patients-providers/';
@@ -67,7 +70,8 @@ class ApiPaths {
   static const storeAppointment = 'appointments/';
   static const myAppointments = 'appointments/mine/';
   static const allAppointments = 'appointments/all/';
-  static const replicateToken = 'integrations/replicate-token/';
+  /// Llama via Ollama on the VPS (`OLLAMA_BASE_URL`, `OLLAMA_MODEL` on server).
+  static const ollamaStatus = 'integrations/ollama-status/';
   static const plans = 'plans/';
   static const roles = 'roles/';
 
@@ -94,8 +98,12 @@ class ApiPaths {
   static const sharesMine = 'shares/mine/';
   static const sharesInbox = 'shares/inbox/';
   static const sharesCreate = 'shares/';
+  static const sharesTriage = 'shares/triage/';
   static String shareDetail(int id) => 'shares/$id/';
   static String shareEmail(int id) => 'shares/$id/email/';
+
+  /// Provider SOAP → patient; GET list / POST send.
+  static const visitNotes = 'visit-notes/';
 
   // --- Patient self profile update ---
   static const patientMe = 'patient/me/';
@@ -103,6 +111,12 @@ class ApiPaths {
   // --- Billing ---
   static const billingStatus = 'billing/status/';
   static const billingCheckout = 'billing/checkout/';
+  static const doctorBillingSummary = 'billing/doctor/summary/';
+  static const doctorTransactions = 'billing/doctor/transactions/';
+  static const doctorCreateInvoice = 'billing/doctor/create-invoice/';
+  static const doctorRequestPayout = 'billing/doctor/request-payout/';
+  static const patientBills = 'billing/patient/bills/';
+  static const patientPayBill = 'billing/patient/pay-bill/';
 
   // --- OCR (direct endpoints) ---
   static const ocrImage = 'ocr/image/';

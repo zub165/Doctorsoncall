@@ -45,7 +45,19 @@ class ApiAccessPlaceholder extends StatelessWidget {
         // Common shapes across our backends
         serverMessage = (data['message'] ?? data['error'] ?? data['detail'])?.toString();
       } else if (data is String) {
-        serverMessage = data;
+        final raw = data.trim();
+        // Never show Django HTML debug pages (500 with DEBUG=True) in the UI.
+        if (raw.contains('<!DOCTYPE html>') ||
+            raw.contains('<html') ||
+            raw.contains('exception_value')) {
+          serverMessage = code == 500
+              ? 'Server error. Try again later or contact support.'
+              : 'Unexpected server response.';
+        } else if (raw.length > 280) {
+          serverMessage = '${raw.substring(0, 280)}…';
+        } else {
+          serverMessage = raw;
+        }
       }
 
       if (code == 401) {

@@ -22,6 +22,23 @@ import '../services/offline_db.dart';
 import '../services/sync_service.dart';
 import '../theme/app_theme.dart';
 
+/// Contact for WhatsApp — from an appointment or profile (patient ↔ doctor).
+class _VisitContact {
+  const _VisitContact({
+    required this.displayName,
+    required this.phone,
+    required this.appointmentLabel,
+    required this.roleLabel,
+    this.appointmentId,
+  });
+
+  final String displayName;
+  final String phone;
+  final String appointmentLabel;
+  final String roleLabel;
+  final int? appointmentId;
+}
+
 /// Doctor visit: local record preview, triage, WhatsApp or browser meet, file tools,
 /// and linking a **server** medical record to an appointment (`PATCH …/appointments/<id>/`).
 ///
@@ -32,11 +49,13 @@ class DoctorVisitScreen extends StatefulWidget {
     super.key,
     required this.apiClient,
     required this.offlineDb,
+    this.role,
     this.onNavigateToShellTab,
   });
 
   final EmergencyApiClient apiClient;
   final OfflineDb offlineDb;
+  final String? role;
 
   /// Switch main shell tab (e.g. open **Medical records** after attach).
   final ValueChanged<int>? onNavigateToShellTab;
@@ -47,9 +66,19 @@ class DoctorVisitScreen extends StatefulWidget {
 
 class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
   OfflineDb get _db => widget.offlineDb;
+  late final MedicalRecordsApi _recordsApi = MedicalRecordsApi(widget.apiClient);
   MedicalRecord? _latest;
   bool _syncing = false;
+  bool _purging = false;
+  bool _loadingContacts = false;
+  List<_VisitContact> _visitContacts = const [];
+  _VisitContact? _selectedContact;
   final ImagePicker _picker = ImagePicker();
+
+  bool get _isDoctorRole {
+    final r = (widget.role ?? '').toLowerCase();
+    return r == 'doctor' || r == 'provider' || r == 'physician';
+  }
 
   // Triage (quick vitals)
   final _heightCm = TextEditingController();
@@ -68,6 +97,7 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
   void initState() {
     super.initState();
     _loadLatest();
+    _loadVisitContacts();
   }
 
   @override
@@ -107,6 +137,251 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
     }
   }
 
+  void _clearTriageForm() {
+    for (final c in [
+      _heightCm,
+      _weightKg,
+      _tempC,
+      _bpSys,
+      _bpDia,
+      _pulse,
+      _resp,
+      _spo2,
+      _glucose,
+      _triageNotes,
+    ]) {
+      c.clear();
+    }
+    setState(() => _skinPhotoPath = null);
+  }
+
+  Future<void> _saveVisitToPhone() async {
+    final triage = _triageToJson();
+    final hasTriage = triage.values.any((v) {
+      if (v == null) return false;
+      final s = v.toString().trim();
+      return s.isNotEmpty && s != 'null';
+    });
+    if (!hasTriage && _latest == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter vitals or triage notes first')),
+      );
+      return;
+    }
+    final id = _latest?.id ?? 'local-${DateTime.now().millisecondsSinceEpoch}';
+    final record = MedicalRecord(
+      id: id,
+      date: DateTime.now(),
+      time: TimeOfDay.now().format(context),
+      symptoms: _latest?.symptoms ?? const [],
+      status: 'Visit',
+      hospitalId: _latest?.hospitalId ?? '',
+      hospitalName: _latest?.hospitalName.isNotEmpty == true
+          ? _latest!.hospitalName
+          : 'Visit (this device only)',
+      notes: _triageNotes.text.trim(),
+      presentingComplaints: _latest?.presentingComplaints ?? '',
+      pastMedicalHistory: _latest?.pastMedicalHistory ?? '',
+      socialHistory: _latest?.socialHistory ?? '',
+      surgicalHistory: _latest?.surgicalHistory ?? '',
+      medications: _latest?.medications ?? const [],
+      allergies: _latest?.allergies ?? const [],
+      labs: _latest?.labs ?? const [],
+      imaging: _latest?.imaging ?? const [],
+      raw: {
+        'source': 'doctor_visit',
+        'local_only': true,
+        'hipaa_device_only': true,
+        'triage': triage,
+      },
+    );
+    await _recordsApi.saveOfflineLocalOnly(db: _db, record: record);
+    await _loadLatest();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Visit saved on this device only — not uploaded to the server'),
+      ),
+    );
+  }
+
+  Future<void> _endVisitAndDelete() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('End visit & delete?'),
+        content: Text(
+          _isDoctorRole
+              ? 'Removes vitals and any visit chart from this phone. '
+                  'Doctors should not keep PHI on the device after the visit.'
+              : 'Removes this visit from your phone. Charts saved with '
+                  '"Save on this phone" stay off the server unless you uploaded them.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
+    var deleteServerToo = false;
+    final serverPk = MedicalRecordsApi.serverRecordPk(_latest);
+    final apptPk = MedicalRecordsApi.linkedAppointmentPk(_latest);
+    final hasServer = serverPk != null;
+
+    if (hasServer) {
+      deleteServerToo = await showDialog<bool>(
+            context: context,
+            builder: (ctx) {
+              var alsoServer = false;
+              return StatefulBuilder(
+                builder: (ctx2, setModal) {
+                  return AlertDialog(
+                    title: const Text('Server copy found'),
+                    content: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Text(
+                          'This visit has a record on the EMR server (upload or link). '
+                          'You can remove it from the server as well, or keep device-only deletion.',
+                        ),
+                        const SizedBox(height: 12),
+                        CheckboxListTile(
+                          value: alsoServer,
+                          onChanged: (v) => setModal(() => alsoServer = v ?? false),
+                          title: const Text('Also delete server copy'),
+                          subtitle: Text(
+                            _isDoctorRole
+                                ? 'Recommended: leave unchecked (device only).'
+                                : 'Only check if the patient wants the server copy removed.',
+                          ),
+                          controlAffinity: ListTileControlAffinity.leading,
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      ],
+                    ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx2, false),
+                        child: Text(_isDoctorRole ? 'Device only' : 'This phone only'),
+                      ),
+                      FilledButton(
+                        onPressed: () => Navigator.pop(ctx2, alsoServer),
+                        child: Text(alsoServer ? 'Delete phone + server' : 'Done'),
+                      ),
+                    ],
+                  );
+                },
+              );
+            },
+          ) ??
+          false;
+    }
+
+    setState(() => _purging = true);
+    try {
+      final id = _latest?.id;
+      if (id != null && id.isNotEmpty) {
+        await _recordsApi.purgeRecord(
+          db: _db,
+          recordId: id,
+          deleteFromServer: deleteServerToo,
+          serverRecordId: serverPk,
+        );
+        if (deleteServerToo && apptPk != null) {
+          try {
+            await EmrFeaturesApi(widget.apiClient).clearAppointmentMedicalRecord(apptPk);
+          } catch (_) {
+            // best-effort unlink
+          }
+        }
+      }
+      _clearTriageForm();
+      setState(() => _latest = null);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            deleteServerToo && hasServer
+                ? 'Visit removed from this device and server'
+                : 'Visit removed from this device only',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Delete failed: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _purging = false);
+    }
+  }
+
+  Future<void> _confirmLinkServerChart() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Upload to server?'),
+        content: const Text(
+          'Linking puts a chart on the EMR server and ties it to an appointment. '
+          'Skip this to keep the visit on the patient\'s phone only (recommended unless '
+          'the patient explicitly wants a server copy).',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Continue to link'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true && mounted) {
+      await _showAttachRecordToAppointment();
+    }
+  }
+
+  Future<void> _persistLinkOnLocalRecord({
+    required int appointmentId,
+    required int serverRecordId,
+  }) async {
+    final r = _latest;
+    if (r == null) return;
+    final raw = Map<String, dynamic>.from(r.raw)
+      ..['linked_appointment_id'] = appointmentId
+      ..['server_medical_record_id'] = serverRecordId
+      ..['local_only'] = false;
+    final updated = MedicalRecord(
+      id: r.id,
+      date: r.date,
+      time: r.time,
+      symptoms: r.symptoms,
+      status: r.status,
+      hospitalId: r.hospitalId,
+      hospitalName: r.hospitalName,
+      notes: r.notes,
+      presentingComplaints: r.presentingComplaints,
+      pastMedicalHistory: r.pastMedicalHistory,
+      socialHistory: r.socialHistory,
+      surgicalHistory: r.surgicalHistory,
+      medications: r.medications,
+      allergies: r.allergies,
+      labs: r.labs,
+      imaging: r.imaging,
+      raw: raw,
+    );
+    await _recordsApi.saveOfflineLocalOnly(db: _db, record: updated);
+    await _loadLatest();
+  }
+
   Future<void> _syncNow() async {
     setState(() => _syncing = true);
     try {
@@ -114,7 +389,7 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
       await _loadLatest();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Synced')),
+        const SnackBar(content: Text('Sync checked (visit data stays on device unless you upload)')),
       );
     } catch (_) {
       if (!mounted) return;
@@ -237,16 +512,140 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
     }
   }
 
+  static String? _pickWhatsAppPhone(Map<String, dynamic>? person) {
+    if (person == null) return null;
+    final wa = (person['whatsapp_number'] ?? '').toString().trim();
+    if (wa.isNotEmpty) return wa;
+    final ph = (person['phone_number'] ?? '').toString().trim();
+    if (ph.isNotEmpty) return ph;
+    return null;
+  }
+
+  static bool _appointmentIsUpcoming(Map<String, dynamic> ap) {
+    final d = ap['date']?.toString() ?? '';
+    if (d.length < 10) return true;
+    final dt = DateTime.tryParse(d.substring(0, 10));
+    if (dt == null) return true;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    return !dt.isBefore(today);
+  }
+
+  static String _contactAppointmentLabel(Map<String, dynamic> ap) {
+    final d = ap['date'] ?? '';
+    final t = ap['time'] ?? '';
+    return '$d $t'.trim();
+  }
+
+  List<_VisitContact> _contactsFromAppointments(List<Map<String, dynamic>> apList) {
+    final sorted = List<Map<String, dynamic>>.from(apList)
+      ..sort((a, b) {
+        final ua = _appointmentIsUpcoming(a);
+        final ub = _appointmentIsUpcoming(b);
+        if (ua != ub) return ua ? -1 : 1;
+        return _contactAppointmentLabel(b).compareTo(_contactAppointmentLabel(a));
+      });
+
+    final out = <_VisitContact>[];
+    final seenPhones = <String>{};
+
+    for (final ap in sorted) {
+      final apId = _appointmentPk(ap);
+      final apLabel = _contactAppointmentLabel(ap);
+      final patient = ap['patient'] is Map
+          ? Map<String, dynamic>.from(ap['patient'] as Map)
+          : null;
+      final provider = ap['provider'] is Map
+          ? Map<String, dynamic>.from(ap['provider'] as Map)
+          : null;
+
+      if (_isDoctorRole && patient != null) {
+        final phone = _pickWhatsAppPhone(patient);
+        if (phone == null || !seenPhones.add(phone)) continue;
+        out.add(
+          _VisitContact(
+            appointmentId: apId,
+            displayName: (patient['name'] ?? 'Patient').toString(),
+            phone: phone,
+            appointmentLabel: apLabel,
+            roleLabel: 'Patient',
+          ),
+        );
+      } else if (!_isDoctorRole && provider != null) {
+        final phone = _pickWhatsAppPhone(provider);
+        if (phone == null || !seenPhones.add(phone)) continue;
+        out.add(
+          _VisitContact(
+            appointmentId: apId,
+            displayName: (provider['full_name'] ?? provider['name'] ?? 'Doctor').toString(),
+            phone: phone,
+            appointmentLabel: apLabel,
+            roleLabel: 'Doctor',
+          ),
+        );
+      }
+    }
+    return out;
+  }
+
+  Future<void> _loadVisitContacts() async {
+    setState(() => _loadingContacts = true);
+    try {
+      final data = await _fetchAppointmentsForAttach();
+      var contacts = _contactsFromAppointments(_unwrapAppointmentList(data));
+
+      // Patients without appointments: no reliable counterparty from profile alone.
+
+      if (!mounted) return;
+      setState(() {
+        _visitContacts = contacts;
+        _selectedContact = contacts.isNotEmpty ? contacts.first : null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _visitContacts = const [];
+        _selectedContact = null;
+      });
+    } finally {
+      if (mounted) setState(() => _loadingContacts = false);
+    }
+  }
+
+  String _defaultWhatsAppMessage(String kind) {
+    final c = _selectedContact;
+    final who = c?.displayName ?? 'there';
+    final when = c?.appointmentLabel;
+    if (when != null && when.isNotEmpty && when != 'Profile') {
+      return 'Hi $who, this is regarding our appointment on $when. Can we do a $kind call?';
+    }
+    return 'Hi $who, can we do a $kind call now?';
+  }
+
   Future<void> _whatsAppCall({required String kind}) async {
-    final phoneC = TextEditingController();
-    final messageC = TextEditingController(text: 'Hi, can we do a $kind call now?');
+    final prefill = _selectedContact?.phone ?? '';
+    final phoneC = TextEditingController(text: prefill);
+    final messageC = TextEditingController(text: _defaultWhatsAppMessage(kind));
     final phone = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text('WhatsApp $kind'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (_selectedContact != null) ...[
+              Text(
+                '${_selectedContact!.roleLabel}: ${_selectedContact!.displayName}',
+                style: Theme.of(ctx).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+              ),
+              if (_selectedContact!.appointmentLabel.isNotEmpty)
+                Text(
+                  'Appointment: ${_selectedContact!.appointmentLabel}',
+                  style: Theme.of(ctx).textTheme.bodySmall,
+                ),
+              const SizedBox(height: 12),
+            ],
             TextField(
               controller: phoneC,
               keyboardType: TextInputType.phone,
@@ -642,9 +1041,17 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
         appointmentId: selAp!,
         medicalRecordId: selRec!,
       );
+      await _persistLinkOnLocalRecord(
+        appointmentId: selAp!,
+        serverRecordId: selRec!,
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Linked record to appointment on the server.')),
+        const SnackBar(
+          content: Text(
+            'Linked on server. Use End visit & delete → server option to remove later.',
+          ),
+        ),
       );
     } catch (e) {
       if (mounted && loadingOpen) {
@@ -687,6 +1094,51 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
           child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         children: [
+          Card(
+            color: Colors.blue.shade50,
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.phonelink_lock_outlined, color: Colors.blue.shade800),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Privacy-first visit',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: Colors.blue.shade900,
+                              ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _workflowStep(
+                    '1',
+                    'During visit',
+                    'Enter vitals below, then tap Save on this phone (not uploaded).',
+                  ),
+                  _workflowStep(
+                    '2',
+                    'After visit',
+                    'Tap End visit & delete → This phone only'
+                    '${_isDoctorRole ? ' (recommended for doctors)' : ''}.',
+                  ),
+                  _workflowStep(
+                    '3',
+                    'Server copy',
+                    'Only if the patient wants it: optional upload under Advanced below.',
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(14),
@@ -753,6 +1205,56 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
                           fontWeight: FontWeight.w700,
                         ),
                   ),
+                  const SizedBox(height: 8),
+                  if (_loadingContacts)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: LinearProgressIndicator(),
+                    )
+                  else if (_visitContacts.isEmpty)
+                    Text(
+                      _isDoctorRole
+                          ? 'No patient WhatsApp/phone on upcoming appointments. '
+                              'Add whatsapp_number on the patient profile, or enter manually.'
+                          : 'No doctor WhatsApp/phone on your appointments. Enter manually.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.grey.shade700,
+                          ),
+                    )
+                  else ...[
+                    DropdownButtonFormField<int>(
+                      value: _selectedContact == null
+                          ? 0
+                          : _visitContacts.indexOf(_selectedContact!).clamp(0, _visitContacts.length - 1),
+                      decoration: InputDecoration(
+                        labelText: _isDoctorRole ? 'Patient for this visit' : 'Doctor for this visit',
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      items: [
+                        for (var i = 0; i < _visitContacts.length; i++)
+                          DropdownMenuItem(
+                            value: i,
+                            child: Text(
+                              '${_visitContacts[i].displayName} · ${_visitContacts[i].appointmentLabel}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (v) {
+                        if (v == null || v < 0 || v >= _visitContacts.length) return;
+                        setState(() => _selectedContact = _visitContacts[v]);
+                      },
+                    ),
+                    const SizedBox(height: 4),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: _loadVisitContacts,
+                        icon: const Icon(Icons.refresh_rounded, size: 18),
+                        label: const Text('Refresh contacts'),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   Row(
                     children: [
@@ -1015,15 +1517,80 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
                     icon: const Icon(Icons.download_rounded),
                     label: const Text('Import JSON'),
                   ),
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: _purging ? null : _saveVisitToPhone,
+                          icon: const Icon(Icons.save_outlined),
+                          label: const Text('Save on this phone'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _purging ? null : _endVisitAndDelete,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red.shade800,
+                            side: BorderSide(color: Colors.red.shade300),
+                          ),
+                          icon: _purging
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.delete_forever_outlined),
+                          label: const Text('End visit & delete'),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_latest != null && MedicalRecordsApi.hasServerCopy(_latest)) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Server copy detected — End visit offers an optional second step to delete it.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.orange.shade800,
+                          ),
+                    ),
+                  ],
                 ],
               ),
             ),
           ),
           const SizedBox(height: 14),
-          FilledButton.icon(
-            onPressed: _showAttachRecordToAppointment,
-            icon: const Icon(Icons.link_rounded),
-            label: const Text('Link server chart to appointment'),
+          ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            title: Text(
+              'Advanced: upload to server (optional)',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            subtitle: const Text(
+              'Skip unless the patient explicitly wants a server copy',
+              style: TextStyle(fontSize: 12),
+            ),
+            children: [
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _confirmLinkServerChart,
+                icon: const Icon(Icons.link_rounded),
+                label: const Text('Link server chart to appointment'),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Requires an existing server medical record. Does not upload vitals from this screen.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Colors.grey.shade700,
+                    ),
+              ),
+              const SizedBox(height: 8),
+            ],
           ),
           const SizedBox(height: 8),
           OutlinedButton.icon(
@@ -1039,8 +1606,9 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
           ),
           const SizedBox(height: 10),
           Text(
-            'WhatsApp = phone app. Browser meet uses VIDEO_MEET_HOST (default Jitsi). '
-            'Link chart sends PATCH to the EMR server (record must exist there).',
+            'WhatsApp opens the phone app; number is pre-filled from the appointment or profile. '
+            'Browser meet uses VIDEO_MEET_HOST (default Jitsi). '
+            'Link chart is optional — skip it to keep PHI on the patient phone only.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Colors.grey.shade700,
                 ),
@@ -1049,6 +1617,44 @@ class _DoctorVisitScreenState extends State<DoctorVisitScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _workflowStep(String n, String title, String body) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 12,
+            backgroundColor: Colors.blue.shade100,
+            child: Text(
+              n,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: Colors.blue.shade900,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: Theme.of(context).textTheme.bodySmall,
+                children: [
+                  TextSpan(
+                    text: '$title — ',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  TextSpan(text: body),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 

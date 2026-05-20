@@ -1,5 +1,6 @@
 import React from 'react';
 import { api, ApiPaths } from '../api.js';
+import { ensureAiConsent } from '../aiConsent.js';
 
 function unwrapAiEnvelope(payload) {
   if (payload?.status === 'success' && payload.data && typeof payload.data === 'object') {
@@ -243,6 +244,10 @@ export function MedicalRecords() {
     if (!q) return;
     setAi({ loading: true, error: '', data: null });
     try {
+      if (!(await ensureAiConsent({ includesHealthRecords: true }))) {
+        setAi({ loading: false, error: 'AI sharing not allowed.', data: null });
+        return;
+      }
       const { data } = await api.post(ApiPaths.medicalRecordsAiAssist, { query: q });
       setAi({ loading: false, error: '', data });
     } catch (err) {

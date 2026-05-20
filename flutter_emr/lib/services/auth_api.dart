@@ -141,6 +141,23 @@ class AuthApi {
     );
   }
 
+  /// **`POST` or `DELETE /api/auth/delete-account/`** — removes account on server, then clears token.
+  Future<void> deleteAccount() async {
+    try {
+      await _client.raw.delete<void>(ApiPaths.authDeleteAccount);
+    } on DioException catch (e) {
+      if (e.response?.statusCode != 404 && e.response?.statusCode != 405) {
+        rethrow;
+      }
+      await _client.raw.post<void>(
+        ApiPaths.authDeleteAccount,
+        options: Options(contentType: Headers.jsonContentType),
+      );
+    }
+    await _client.tokenRepo.clear();
+    _client.raw.options.headers.remove('Authorization');
+  }
+
   /// Clears local token; best-effort **`POST /api/auth/logout/`** when a token exists.
   Future<void> logout() async {
     try {

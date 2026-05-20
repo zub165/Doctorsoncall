@@ -6,6 +6,7 @@ import '../services/auth_api.dart';
 import '../services/emergency_api_client.dart';
 import '../services/emr_features_api.dart';
 import '../theme/app_theme.dart';
+import '../widgets/medical_disclaimer_banner.dart';
 import '../services/health_api.dart';
 import '../services/user_api.dart';
 import 'login_screen.dart';
@@ -274,6 +275,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
       child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          const MedicalDisclaimerBanner(),
+          const SizedBox(height: 12),
           // Welcome header
           Container(
             padding: const EdgeInsets.all(20),

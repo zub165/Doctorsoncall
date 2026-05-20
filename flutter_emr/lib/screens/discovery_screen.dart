@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../services/emergency_api_client.dart';
+import '../widgets/country_flag.dart';
+import '../widgets/speciality_avatar.dart';
 import '../services/emr_features_api.dart';
 import '../theme/app_theme.dart';
 
@@ -87,19 +89,22 @@ class DiscoveryScreen extends StatelessWidget {
 
   Widget _buildSpecialitiesTab(BuildContext context) {
     return _ListTab(future: EmrFeaturesApi(apiClient).specialities(), itemBuilder: (item) {
-      final name = item['speciality_name'] ?? item['name'] ?? item['title'] ?? 'Unknown';
-      final img = item['speciality_image'] ?? item['image'] ?? item['icon'] ?? '';
+      final name = (item['speciality_name'] ?? item['name'] ?? item['title'] ?? 'Unknown').toString();
+      final img = (item['speciality_image'] ?? item['image'] ?? item['icon'] ?? '').toString();
+      final country = (item['country_name'] ?? '').toString();
       return Card(
         margin: const EdgeInsets.only(bottom: 8),
         child: ListTile(
-          onTap: () => _showDiscoveryDetailSheet(context, name.toString(), item),
-          leading: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: const Color(0xFF4CAF50).withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)),
-            child: const Icon(Icons.medical_services, color: Color(0xFF4CAF50)),
+          onTap: () => _showDiscoveryDetailSheet(context, name, item),
+          leading: SpecialityAvatar(
+            name: name,
+            imageUrl: img,
+            size: 48,
+            radius: 12,
+            onlineFallback: false,
           ),
-          title: Text(name.toString()),
-          subtitle: Text(img.toString()),
+          title: Text(name),
+          subtitle: Text(country.isNotEmpty ? country : 'Medical specialty'),
           trailing: const Icon(Icons.chevron_right),
         ),
       );
@@ -350,15 +355,11 @@ class _CountriesTabState extends State<_CountriesTab> {
                         ),
                         child: Row(
                           children: [
-                            Container(
-                              width: 38,
-                              height: 38,
-                              decoration: BoxDecoration(
-                                color: AppColors.primary.withValues(alpha: 0.10),
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              alignment: Alignment.center,
-                              child: const Icon(Icons.public, color: AppColors.primary),
+                            CountryFlag(
+                              countryName: row.name,
+                              countryCode: row.code,
+                              size: 38,
+                              radius: 14,
                             ),
                             const SizedBox(width: 12),
                             Expanded(

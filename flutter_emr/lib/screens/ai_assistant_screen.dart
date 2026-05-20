@@ -5,10 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
+import '../services/consented_ai_assist.dart';
 import '../services/emergency_api_client.dart';
+import '../services/emr_features_api.dart';
 import '../services/medical_records_api.dart';
 import '../services/offline_db.dart';
 import '../theme/app_theme.dart';
+import '../widgets/ai_disclosure_banner.dart';
 
 class AiAssistantScreen extends StatefulWidget {
   const AiAssistantScreen({super.key, required this.apiClient});
@@ -145,7 +148,10 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
   Future<void> _enrichFromBackend(String originalQuery) async {
     try {
       final queryForApi = _expandAssistantQuery(originalQuery);
-      final res = await MedicalRecordsApi(widget.apiClient).aiAssist(
+      if (!mounted) return;
+      final allowed = await ConsentedAiAssist.ensureConsent(context);
+      if (!allowed || !mounted) return;
+      final res = await ConsentedAiAssist(MedicalRecordsApi(widget.apiClient)).assist(
         query: queryForApi,
         kind: 'patient_summary',
       );
@@ -188,7 +194,16 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
     final queryForApi = _expandAssistantQuery(t);
     String reply;
     try {
-      final res = await MedicalRecordsApi(widget.apiClient).aiAssist(
+      if (!mounted) return;
+      final allowed = await ConsentedAiAssist.ensureConsent(context);
+      if (!allowed) {
+        if (!mounted) return;
+        setState(() => _sending = false);
+        showAiConsentDeniedSnackBar(context);
+        return;
+      }
+      if (!mounted) return;
+      final res = await ConsentedAiAssist(MedicalRecordsApi(widget.apiClient)).assist(
         query: queryForApi,
         kind: 'patient_summary',
       );
@@ -311,7 +326,8 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
       '',
       for (final b in bullets) '• $b',
       '',
-      'This is general information, not a diagnosis.',
+      'This is general information only — not medical advice, diagnosis, or treatment. '
+      'Consult a healthcare professional.',
     ].join('\n');
   }
 
@@ -339,7 +355,8 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'Not for emergencies. If severe symptoms, call local emergency services.',
+                  'This app does not provide medical advice, diagnosis, or treatment. '
+                  'Consult a healthcare professional. In an emergency, call local emergency services.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: Colors.grey.shade800,
                       ),
@@ -353,6 +370,10 @@ class _AiAssistantScreenState extends State<AiAssistantScreen> {
               ),
             ],
           ),
+        ),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: AiDisclosureBanner(compact: true),
         ),
         Expanded(
           child: ListView.builder(
@@ -484,9 +505,10 @@ class _Msg {
 }
 
 class DoctorSoapNoteScreen extends StatefulWidget {
-  const DoctorSoapNoteScreen({super.key, required this.apiClient});
+  const DoctorSoapNoteScreen({super.key, required this.apiClient, this.role});
 
   final EmergencyApiClient apiClient;
+  final String? role;
 
   @override
   State<DoctorSoapNoteScreen> createState() => _DoctorSoapNoteScreenState();
@@ -499,8 +521,29 @@ class _DoctorSoapNoteScreenState extends State<DoctorSoapNoteScreen> {
   final _assessment = TextEditingController();
   final _plan = TextEditingController();
   bool _busy = false;
+  bool _sending = false;
+  int? _patientId;
+  int? _appointmentId;
+  List<Map<String, dynamic>> _patients = const [];
+  List<Map<String, dynamic>> _appointments = const [];
 
   final stt.SpeechToText _stt = stt.SpeechToText();
+
+  bool get _isDoctorish {
+    final r = (widget.role ?? '').toLowerCase().trim();
+    return r == 'doctor' ||
+        r == 'provider' ||
+        r == 'physician' ||
+        r == 'admin' ||
+        r == 'staff' ||
+        r == 'administrator';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (_isDoctorish) _loadPatientsFromAppointments();
+  }
   bool _listening = false;
   String _lastPartial = '';
 
@@ -581,7 +624,14 @@ class _DoctorSoapNoteScreenState extends State<DoctorSoapNoteScreen> {
     if (text.isEmpty) return;
     setState(() => _busy = true);
     try {
-      final res = await MedicalRecordsApi(widget.apiClient).aiAssist(
+      if (!mounted) return;
+      final allowed = await ConsentedAiAssist.ensureConsent(context);
+      if (!allowed) {
+        showAiConsentDeniedSnackBar(context);
+        return;
+      }
+      if (!mounted) return;
+      final res = await ConsentedAiAssist(MedicalRecordsApi(widget.apiClient)).assist(
         query: text,
         kind: 'soap',
       );
@@ -707,6 +757,83 @@ class _DoctorSoapNoteScreenState extends State<DoctorSoapNoteScreen> {
     );
   }
 
+  Future<void> _loadPatientsFromAppointments() async {
+    try {
+      final raw = await EmrFeaturesApi(widget.apiClient).myAppointments();
+      final appts = <Map<String, dynamic>>[];
+      final patById = <int, Map<String, dynamic>>{};
+      if (raw is Map) {
+        final list = raw['appointments'] ??
+            (raw['data'] is Map ? (raw['data'] as Map)['appointments'] : null);
+        if (list is List) {
+          for (final row in list) {
+            if (row is! Map) continue;
+            final m = Map<String, dynamic>.from(row);
+            appts.add(m);
+            final pt = m['patient'];
+            if (pt is Map) {
+              final id = int.tryParse('${pt['id'] ?? m['patient_id'] ?? ''}');
+              if (id != null) patById[id] = Map<String, dynamic>.from(pt);
+            }
+          }
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _appointments = appts;
+        _patients = patById.values.toList();
+        if (_patientId == null && _patients.isNotEmpty) {
+          _patientId = int.tryParse('${_patients.first['id']}');
+        }
+      });
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  Future<void> _sendSoapToPatient() async {
+    final pid = _patientId;
+    if (pid == null || pid <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select a patient')),
+      );
+      return;
+    }
+    if (_subjective.text.trim().isEmpty &&
+        _objective.text.trim().isEmpty &&
+        _assessment.text.trim().isEmpty &&
+        _plan.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Fill at least one SOAP section first')),
+      );
+      return;
+    }
+    setState(() => _sending = true);
+    try {
+      await MedicalRecordsApi(widget.apiClient).sendVisitNoteToPatient(
+        patientId: pid,
+        subjective: _subjective.text.trim(),
+        objective: _objective.text.trim(),
+        assessment: _assessment.text.trim(),
+        plan: _plan.text.trim(),
+        appointmentId: _appointmentId,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('SOAP sent — patient can view under Medical records & Appointments'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Send failed: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListView(
@@ -775,6 +902,89 @@ class _DoctorSoapNoteScreenState extends State<DoctorSoapNoteScreen> {
           ),
         ],
         const SizedBox(height: 12),
+        if (_isDoctorish) ...[
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Send to patient',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  const SizedBox(height: 10),
+                  if (_patients.isEmpty)
+                    Text(
+                      'No patients from appointments yet.',
+                      style: TextStyle(color: Colors.grey.shade700),
+                    )
+                  else ...[
+                    DropdownButtonFormField<int>(
+                      value: _patientId,
+                      decoration: const InputDecoration(labelText: 'Patient'),
+                      items: _patients
+                          .map((p) {
+                            final id = int.tryParse('${p['id']}');
+                            if (id == null) return null;
+                            return DropdownMenuItem<int>(
+                              value: id,
+                              child: Text(
+                                (p['name'] ?? p['full_name'] ?? 'Patient #$id').toString(),
+                              ),
+                            );
+                          })
+                          .whereType<DropdownMenuItem<int>>()
+                          .toList(),
+                      onChanged: _sending
+                          ? null
+                          : (v) => setState(() {
+                                _patientId = v;
+                                _appointmentId = null;
+                              }),
+                    ),
+                    if (_appointments.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<int?>(
+                        value: _appointmentId,
+                        decoration: const InputDecoration(
+                          labelText: 'Link to appointment (optional)',
+                        ),
+                        items: [
+                          const DropdownMenuItem<int?>(
+                            value: null,
+                            child: Text('No specific visit'),
+                          ),
+                          ..._appointments
+                              .where((a) {
+                                final pt = a['patient'];
+                                final pid = pt is Map
+                                    ? int.tryParse('${pt['id'] ?? a['patient_id']}')
+                                    : int.tryParse('${a['patient_id']}');
+                                return pid == _patientId;
+                              })
+                              .map((a) {
+                                final id = int.tryParse('${a['id']}');
+                                if (id == null) return null;
+                                return DropdownMenuItem<int?>(
+                                  value: id,
+                                  child: Text('${a['date']} ${a['time']}'),
+                                );
+                              })
+                              .whereType<DropdownMenuItem<int?>>(),
+                        ],
+                        onChanged: _sending ? null : (v) => setState(() => _appointmentId = v),
+                      ),
+                    ],
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         Row(
           children: [
             Expanded(
@@ -798,6 +1008,23 @@ class _DoctorSoapNoteScreenState extends State<DoctorSoapNoteScreen> {
             ),
           ],
         ),
+        if (_isDoctorish) ...[
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: (_sending || _busy) ? null : _sendSoapToPatient,
+            style: FilledButton.styleFrom(
+              backgroundColor: Colors.green.shade700,
+            ),
+            icon: _sending
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Icon(Icons.send_rounded),
+            label: Text(_sending ? 'Sending…' : 'Send SOAP to patient'),
+          ),
+        ],
         const SizedBox(height: 14),
         _soapField('Subjective (S)', _subjective),
         const SizedBox(height: 10),

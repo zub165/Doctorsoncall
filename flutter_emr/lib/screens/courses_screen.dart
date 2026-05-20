@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -19,18 +21,55 @@ class CoursesScreen extends StatefulWidget {
   State<CoursesScreen> createState() => _CoursesScreenState();
 }
 
-class _CoursesScreenState extends State<CoursesScreen> {
+class _CoursesScreenState extends State<CoursesScreen>
+    with SingleTickerProviderStateMixin {
   late final CatalogApi _api = CatalogApi(widget.apiClient);
   late Future<dynamic> _coursesFuture = _api.courses();
+  late final TabController _tabController;
 
   final _q = TextEditingController();
+  final _courseFilter = TextEditingController();
   bool _searching = false;
   String? _searchError;
   List<_EducationItem> _results = const [];
 
+  static const _tabTitles = ['Education', 'Courses', 'Maintenance'];
+
+  static const _quickTopics = [
+    'Diabetes',
+    'High blood pressure',
+    'Asthma',
+    'Fever',
+    'Heart disease',
+    'Pregnancy',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this, initialIndex: 0);
+    _tabController.addListener(_onTabChanged);
+  }
+
+  void _onTabChanged() {
+    if (_tabController.indexIsChanging) return;
+    setState(() {});
+  }
+
+  static String _stripHtml(String raw) {
+    return raw.replaceAll(RegExp(r'<[^>]*>'), '').trim();
+  }
+
+  static String _medlinePlusSearchUrl(String query) {
+    return 'https://medlineplus.gov/search.html?q=${Uri.encodeComponent(query.trim())}';
+  }
+
   @override
   void dispose() {
+    _tabController.removeListener(_onTabChanged);
+    _tabController.dispose();
     _q.dispose();
+    _courseFilter.dispose();
     super.dispose();
   }
 
@@ -120,21 +159,20 @@ class _CoursesScreenState extends State<CoursesScreen> {
       final doc = XmlDocument.parse(xmlStr);
       final items = <_EducationItem>[];
       for (final d in doc.findAllElements('document')) {
-        final url = d
-            .findElements('content')
-            .where((e) => e.getAttribute('name') == 'url')
-            .map((e) => e.innerText.trim())
-            .where((s) => s.isNotEmpty)
-            .cast<String?>()
-            .firstWhere((e) => e != null, orElse: () => null);
-        final title = d
+        final url = (d.getAttribute('url') ?? '').trim().isNotEmpty
+            ? d.getAttribute('url')!.trim()
+            : d
+                .findElements('content')
+                .where((e) => e.getAttribute('name') == 'url')
+                .map((e) => e.innerText.trim())
+                .firstWhere((s) => s.isNotEmpty, orElse: () => '');
+        final titleRaw = d
             .findElements('content')
             .where((e) => e.getAttribute('name') == 'title')
             .map((e) => e.innerText.trim())
-            .where((s) => s.isNotEmpty)
-            .cast<String?>()
-            .firstWhere((e) => e != null, orElse: () => null);
-        if (url == null || title == null) continue;
+            .firstWhere((s) => s.isNotEmpty, orElse: () => '');
+        final title = _stripHtml(titleRaw);
+        if (url.isEmpty || title.isEmpty) continue;
         items.add(_EducationItem(title: title, url: url));
       }
 
@@ -163,38 +201,47 @@ class _CoursesScreenState extends State<CoursesScreen> {
     }
   }
 
+  Future<void> _openMedlinePlusSearch(String query) async {
+    await _openUrl(_medlinePlusSearchUrl(query));
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Drawer label is "Courses" — open the Courses tab first (not MedlinePlus Education).
-    return DefaultTabController(
-      length: 3,
-      initialIndex: 1,
-      child: Column(
-        children: [
-          Container(
-            color: const Color(0xFFD32F2F),
-            child: const TabBar(
-              labelColor: Colors.white,
-              unselectedLabelColor: Colors.white70,
-              indicatorColor: Colors.white,
-              tabs: [
-                Tab(icon: Icon(Icons.menu_book_outlined), text: 'Education'),
-                Tab(icon: Icon(Icons.school_outlined), text: 'Courses'),
-                Tab(icon: Icon(Icons.fact_check_outlined), text: 'Maintenance'),
-              ],
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Material(
+          color: AppColors.primary,
+          child: TabBar(
+            controller: _tabController,
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white70,
+            indicatorColor: Colors.white,
+            indicatorWeight: 3,
+            tabs: [
+              for (var i = 0; i < _tabTitles.length; i++)
+                Tab(
+                  icon: Icon(switch (i) {
+                    0 => Icons.menu_book_outlined,
+                    1 => Icons.school_outlined,
+                    _ => Icons.fact_check_outlined,
+                  }),
+                  text: _tabTitles[i],
+                ),
+            ],
           ),
-          Expanded(
-            child: TabBarView(
-              children: [
-                _buildEducation(),
-                _buildCourses(),
-                _buildMaintenance(context),
-              ],
-            ),
+        ),
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: [
+              _buildEducation(),
+              _buildCourses(),
+              _buildMaintenance(context),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -216,30 +263,74 @@ class _CoursesScreenState extends State<CoursesScreen> {
               ),
         ),
         const SizedBox(height: 14),
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _q,
-                textInputAction: TextInputAction.search,
-                onSubmitted: (_) => _searchEducation(),
-                decoration: const InputDecoration(
-                  labelText: 'Search topic',
-                  hintText: 'e.g., fever, asthma, diabetes',
-                ),
+        TextField(
+          controller: _q,
+          textInputAction: TextInputAction.search,
+          onSubmitted: (_) => _searchEducation(),
+          decoration: const InputDecoration(
+            labelText: 'Search topic',
+            hintText: 'e.g., fever, asthma, diabetes',
+            prefixIcon: Icon(Icons.search_rounded),
+          ),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _searching ? null : _searchEducation,
+            icon: _searching
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Icon(Icons.article_outlined),
+            label: Text(_searching ? 'Searching…' : 'Search MedlinePlus'),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: () {
+              final t = _q.text.trim();
+              if (t.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Enter a topic first')),
+                );
+                return;
+              }
+              _openMedlinePlusSearch(t);
+            },
+            icon: const Icon(Icons.open_in_browser_rounded),
+            label: const Text('Open in browser'),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Popular topics',
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.w700,
               ),
-            ),
-            const SizedBox(width: 12),
-            FilledButton(
-              onPressed: _searching ? null : _searchEducation,
-              child: _searching
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Search'),
-            ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final topic in _quickTopics)
+              ActionChip(
+                label: Text(topic),
+                onPressed: _searching
+                    ? null
+                    : () {
+                        _q.text = topic;
+                        _searchEducation();
+                      },
+              ),
           ],
         ),
         if (_searchError != null) ...[
@@ -266,9 +357,18 @@ class _CoursesScreenState extends State<CoursesScreen> {
             (it) => Card(
               margin: const EdgeInsets.only(bottom: 10),
               child: ListTile(
-                leading: const Icon(Icons.article_outlined),
-                title: Text(it.title),
-                subtitle: Text(it.url, maxLines: 1, overflow: TextOverflow.ellipsis),
+                leading: CircleAvatar(
+                  backgroundColor: AppColors.primary.withValues(alpha: 0.10),
+                  child: const Icon(Icons.article_outlined, color: AppColors.primary),
+                ),
+                title: Text(
+                  it.title,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: Text(
+                  'MedlinePlus · Tap to read',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                ),
                 trailing: const Icon(Icons.open_in_new_rounded),
                 onTap: () => _openUrl(it.url),
               ),
@@ -313,8 +413,15 @@ class _CoursesScreenState extends State<CoursesScreen> {
             );
           }
           final parsed = _parseCoursesPayload(snap.data);
-          final courses = parsed.$1;
+          var courses = parsed.$1;
           final apiErr = parsed.$2;
+          final filterQ = _courseFilter.text.trim().toLowerCase();
+          if (filterQ.isNotEmpty) {
+            courses = courses.where((c) {
+              final blob = jsonEncode(c).toLowerCase();
+              return blob.contains(filterQ);
+            }).toList();
+          }
 
           return ListView(
             physics: const AlwaysScrollableScrollPhysics(),
@@ -332,6 +439,16 @@ class _CoursesScreenState extends State<CoursesScreen> {
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Colors.grey.shade700,
                     ),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: _courseFilter,
+                onChanged: (_) => setState(() {}),
+                decoration: const InputDecoration(
+                  labelText: 'Filter courses',
+                  hintText: 'Search title, tags, summary…',
+                  prefixIcon: Icon(Icons.filter_list_rounded),
+                ),
               ),
               const SizedBox(height: 14),
               if (apiErr != null && courses.isEmpty)

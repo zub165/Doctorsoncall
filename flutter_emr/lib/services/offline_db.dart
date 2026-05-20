@@ -190,6 +190,21 @@ class OfflineDb extends _$OfflineDb {
   Future<void> clearAiAssistantMessages() async {
     await delete(aiAssistantMessages).go();
   }
+
+  /// Drop pending outbox rows whose JSON payload references [recordId].
+  Future<void> cancelOutboxForRecordId(String recordId) async {
+    final pending = await pendingOutbox(limit: 200);
+    for (final ev in pending) {
+      try {
+        final m = jsonDecode(ev.payloadJson);
+        if (m is Map && (m['id']?.toString() == recordId)) {
+          await (delete(outboxEvents)..where((t) => t.id.equals(ev.id))).go();
+        }
+      } catch (_) {
+        // ignore malformed payload
+      }
+    }
+  }
 }
 
 QueryExecutor _openConnection() {

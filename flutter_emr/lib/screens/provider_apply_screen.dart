@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/emergency_api_client.dart';
 import '../services/emr_features_api.dart';
+import '../widgets/speciality_avatar.dart';
 
 class ProviderApplyScreen extends StatefulWidget {
   const ProviderApplyScreen({super.key, required this.apiClient});
@@ -219,12 +220,27 @@ class _ProviderApplyScreenState extends State<ProviderApplyScreen> {
               final id = idRaw is int ? idRaw : int.tryParse(idRaw?.toString() ?? '');
               if (id == null) return null;
               final name = (s['speciality_name'] ?? s['name'] ?? 'Speciality $id').toString();
+              final img = (s['speciality_image'] ?? '').toString();
               return DropdownMenuItem<int>(
                 value: id,
-                child: Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                child: Row(
+                  children: [
+                    SpecialityAvatar(
+                      name: name,
+                      imageUrl: img,
+                      size: 32,
+                      radius: 8,
+                      onlineFallback: false,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
               );
             }).whereType<DropdownMenuItem<int>>().toList();

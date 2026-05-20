@@ -57,7 +57,7 @@ class _AppShellState extends State<AppShell> {
     'Dashboard',
     'Hospitals',
     'Triage',
-    'Courses',
+    'Education & courses',
     'AI assistant',
     'Doctor notes (SOAP)',
     'Appointments',
@@ -100,8 +100,8 @@ class _AppShellState extends State<AppShell> {
               const Divider(height: 1),
               _sectionLabel(context, 'Explore'),
               _tile(context, 1, Icons.local_hospital_outlined, 'Hospitals'),
-              if (!isPatient) _tile(context, 2, Icons.healing_outlined, 'Triage'),
-              _tile(context, 3, Icons.school_outlined, 'Courses'),
+              _tile(context, 2, Icons.healing_outlined, 'Triage'),
+              _tile(context, 3, Icons.school_outlined, 'Education & courses'),
               _tile(context, 4, Icons.smart_toy_outlined, 'AI assistant'),
               if (!isPatient) _tile(context, 5, Icons.description_outlined, 'Doctor notes (SOAP)'),
               const Divider(height: 1),
@@ -181,10 +181,11 @@ class _AppShellState extends State<AppShell> {
           OsmToolsScreen(
             apiClient: c,
             onNavigateToShellTab: (i) => setState(() => _index = i),
+            role: widget.role,
           ),
           CoursesScreen(apiClient: c),
           AiAssistantScreen(apiClient: c),
-          DoctorSoapNoteScreen(apiClient: c),
+          DoctorSoapNoteScreen(apiClient: c, role: widget.role),
           AppointmentsScreen(
             apiClient: c,
             onNavigateToTab: (i) => setState(() => _index = i),
@@ -194,6 +195,7 @@ class _AppShellState extends State<AppShell> {
           DoctorVisitScreen(
             apiClient: c,
             offlineDb: widget.offlineDb,
+            role: widget.role,
             onNavigateToShellTab: (i) => setState(() => _index = i),
           ),
           BookAppointmentScreen(
@@ -204,7 +206,7 @@ class _AppShellState extends State<AppShell> {
           DiscoveryScreen(apiClient: c),
           PatientsProvidersScreen(apiClient: c, role: widget.role),
           FeedbackScreen(apiClient: c),
-          SettingsScreen(apiClient: c),
+          SettingsScreen(apiClient: c, offlineDb: widget.offlineDb),
           ChangePasswordScreen(apiClient: c),
           ClientHubScreen(
             apiClient: c,
@@ -212,7 +214,7 @@ class _AppShellState extends State<AppShell> {
             onNavigateToShellTab: (i) => setState(() => _index = i),
           ),
           ProviderApplyScreen(apiClient: c),
-          AdminHubScreen(apiClient: c),
+          AdminHubScreen(apiClient: c, embeddedInShell: true),
           MedicalRecordsHubScreen(apiClient: c, role: widget.role),
         ],
       ),

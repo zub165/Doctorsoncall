@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import '../services/emergency_api_client.dart';
 import '../services/emr_features_api.dart';
+import '../services/medical_records_api.dart';
+import 'medical_records_hub_screen.dart' show VisitNoteTile, VisitNotesFromDoctorPanel;
 import '../theme/app_theme.dart';
 import '../widgets/api_access_placeholder.dart';
 
@@ -76,17 +78,64 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     final isAdmin = role == 'admin' || role == 'administrator' || role == 'staff';
     final isDoctor = role == 'doctor' || role == 'provider' || role == 'physician';
 
-    // Preferred endpoint based on role.
+    // Staff/admin: all bookings; doctors/patients: mine (patient + provider rows on server).
     try {
-      return await ((isAdmin || isDoctor) ? _api.allAppointments() : _api.myAppointments());
+      if (isAdmin) {
+        return await _api.allAppointments();
+      }
+      if (isDoctor) {
+        try {
+          return await _api.allAppointments();
+        } on DioException catch (e) {
+          if (e.response?.statusCode == 403) {
+            return await _api.myAppointments();
+          }
+          rethrow;
+        }
+      }
+      return await _api.myAppointments();
     } on DioException catch (e) {
       final code = e.response?.statusCode;
-      // If role routing is wrong or backend permissions differ, fall back.
-      if ((code == 401 || code == 403) && (isAdmin || isDoctor)) {
-        return await _api.myAppointments();
+      if ((isAdmin || isDoctor) &&
+          (code == 401 || code == 403 || code == 500 || code == 502 || code == 503)) {
+        try {
+          return await _api.myAppointments();
+        } catch (_) {
+          rethrow;
+        }
       }
       rethrow;
     }
+  }
+
+  static String _dateKey(dynamic raw) {
+    final s = raw?.toString() ?? '';
+    if (s.length >= 10) return s.substring(0, 10);
+    return s;
+  }
+
+  static List<Map<String, dynamic>> _normalizeAppointments(dynamic data) {
+    final raw = data is Map
+        ? ((data['appointments'] ??
+                (data['data'] is Map ? (data['data']['appointments'] ?? const []) : const [])) ??
+            const [])
+        : const [];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList()
+      ..sort((a, b) {
+        final da = _dateKey(a['date']);
+        final db = _dateKey(b['date']);
+        final c = da.compareTo(db);
+        if (c != 0) return c;
+        return (a['time'] ?? '').toString().compareTo((b['time'] ?? '').toString());
+      });
+  }
+
+  Set<String> _datesWithBookings(List<Map<String, dynamic>> appointments) {
+    return appointments.map((a) => _dateKey(a['date'])).where((k) => k.length == 10).toSet();
   }
 
   @override
@@ -125,53 +174,104 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
             );
           }
 
-          final data = snap.data;
-          final raw = data is Map
-              ? ((data['appointments'] ??
-                      (data['data'] is Map ? (data['data']['appointments'] ?? const []) : const [])) ??
-                  const [])
-              : const [];
-          final List<dynamic> appointments = raw is List ? raw : const [];
+          final appointments = _normalizeAppointments(snap.data);
+          final role = (widget.role ?? '').toLowerCase().trim();
+          final showPatient = role == 'admin' ||
+              role == 'administrator' ||
+              role == 'staff' ||
+              role == 'doctor' ||
+              role == 'provider' ||
+              role == 'physician';
 
-          // Calendar + filtered list by selected day.
           final y = _selectedDate.year.toString().padLeft(4, '0');
           final m = _selectedDate.month.toString().padLeft(2, '0');
           final d = _selectedDate.day.toString().padLeft(2, '0');
           final selectedKey = '$y-$m-$d';
 
-          final dayAppointments = appointments.where((a) {
-            if (a is Map) {
-              final date = a['date']?.toString() ?? '';
-              return date.startsWith(selectedKey);
-            }
-            return false;
-          }).toList();
+          final dayAppointments =
+              appointments.where((a) => _dateKey(a['date']) == selectedKey).toList();
+
+          final otherDates = _datesWithBookings(appointments)
+              .where((k) => k != selectedKey)
+              .toList()
+            ..sort();
 
           return ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(16),
             children: [
               Card(
+                color: AppColors.primary.withValues(alpha: 0.06),
+                child: ListTile(
+                  leading: const Icon(Icons.event_available_rounded, color: AppColors.primary),
+                  title: Text(
+                    '${appointments.length} appointment${appointments.length == 1 ? '' : 's'} from database',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  subtitle: Text(
+                    dayAppointments.isEmpty
+                        ? 'None on $selectedKey · pick another date below'
+                        : '${dayAppointments.length} on selected day',
+                  ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.refresh_rounded),
+                    onPressed: _loadAppointments,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Card(
                 child: Padding(
                   padding: const EdgeInsets.all(12),
                   child: CalendarDatePicker(
                     initialDate: _selectedDate,
                     firstDate: DateTime(DateTime.now().year - 1),
-                    lastDate: DateTime(DateTime.now().year + 2),
+                    lastDate: DateTime(DateTime.now().year + 3),
                     onDateChanged: (v) => setState(() => _selectedDate = v),
                   ),
                 ),
               ),
+              if (otherDates.isNotEmpty && dayAppointments.isEmpty) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Dates with bookings',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final dateKey in otherDates.take(8))
+                      ActionChip(
+                        label: Text(dateKey),
+                        onPressed: () {
+                          final parts = dateKey.split('-');
+                          if (parts.length == 3) {
+                            setState(() {
+                              _selectedDate = DateTime(
+                                int.parse(parts[0]),
+                                int.parse(parts[1]),
+                                int.parse(parts[2]),
+                              );
+                            });
+                          }
+                        },
+                      ),
+                  ],
+                ),
+              ],
               const SizedBox(height: 12),
               Row(
                 children: [
-                  Text(
-                    'Bookings on $selectedKey',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+                  Expanded(
+                    child: Text(
+                      'Bookings on $selectedKey',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
                   ),
-                  const Spacer(),
                   if (_isPatientUser)
                     TextButton.icon(
                       onPressed: () => widget.onNavigateToTab?.call(8),
@@ -183,35 +283,35 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
               const SizedBox(height: 8),
               if (appointments.isEmpty)
                 _buildEmptyState()
-              else if (dayAppointments.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 18),
-                  child: Center(
+              else ...[
+                if (dayAppointments.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
                     child: Text(
-                      'No appointments on this day.',
+                      'No appointments on this day. Showing all upcoming below.',
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                             color: Colors.grey.shade700,
                           ),
                     ),
                   ),
-                )
-              else
-                ...dayAppointments.map((a) {
-                  if (a is Map) {
-                    final role = (widget.role ?? '').toLowerCase().trim();
-                    final isAdmin = role == 'admin' ||
-                        role == 'administrator' ||
-                        role == 'staff';
-                    final isDoctor = role == 'doctor' ||
-                        role == 'provider' ||
-                        role == 'physician';
-                    return _buildAppointmentCard(
-                      Map<String, dynamic>.from(a),
-                      showPatient: isAdmin || isDoctor,
-                    );
-                  }
-                  return const SizedBox.shrink();
-                }),
+                if (dayAppointments.isNotEmpty)
+                  ...dayAppointments.map(
+                    (a) => _buildAppointmentCard(a, showPatient: showPatient),
+                  )
+                else ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'All upcoming',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  ...appointments.take(25).map(
+                        (a) => _buildAppointmentCard(a, showPatient: showPatient),
+                      ),
+                ],
+              ],
             ],
           );
         },
@@ -268,6 +368,62 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     );
   }
 
+  Future<void> _openAppointmentThread(Map<String, dynamic> appt) async {
+    final apptId = int.tryParse('${appt['id'] ?? ''}');
+    final embedded = appt['visit_notes'];
+    final hasEmbedded = embedded is List && embedded.isNotEmpty;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.55,
+          minChildSize: 0.35,
+          maxChildSize: 0.92,
+          builder: (_, scroll) {
+            return ListView(
+              controller: scroll,
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              children: [
+                Text(
+                  'Visit thread',
+                  style: Theme.of(ctx).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '${appt['date']} · ${appt['time']}',
+                  style: TextStyle(color: Colors.grey.shade700),
+                ),
+                const SizedBox(height: 16),
+                if (hasEmbedded)
+                  ...embedded.whereType<Map>().map(
+                        (n) => VisitNoteTile(
+                          note: Map<String, dynamic>.from(n),
+                        ),
+                      )
+                else if (apptId != null)
+                  VisitNotesFromDoctorPanel(
+                    api: MedicalRecordsApi(widget.apiClient),
+                    appointmentId: apptId,
+                  )
+                else
+                  Text(
+                    'No visit notes for this appointment yet.',
+                    style: TextStyle(color: Colors.grey.shade700),
+                  ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildAppointmentCard(
     Map<String, dynamic> appt, {
     required bool showPatient,
@@ -314,23 +470,29 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         mediumIcon = Icons.local_hospital;
     }
 
+    final visitNotes = appt['visit_notes'];
+    final hasSoap = visitNotes is List && visitNotes.isNotEmpty;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD32F2F).withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _openAppointmentThread(appt),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD32F2F).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.event, color: Color(0xFFD32F2F)),
                   ),
-                  child: const Icon(Icons.event, color: Color(0xFFD32F2F)),
-                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -394,18 +556,42 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
             const SizedBox(height: 12),
             const Divider(),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
-                const SizedBox(width: 8),
-                Text(date, style: const TextStyle(fontWeight: FontWeight.w500)),
-                const SizedBox(width: 20),
-                const Icon(Icons.access_time, size: 16, color: Colors.grey),
-                const SizedBox(width: 8),
-                Text(time),
+              Row(
+                children: [
+                  const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
+                  const SizedBox(width: 8),
+                  Text(date, style: const TextStyle(fontWeight: FontWeight.w500)),
+                  const SizedBox(width: 20),
+                  const Icon(Icons.access_time, size: 16, color: Colors.grey),
+                  const SizedBox(width: 8),
+                  Text(time),
+                ],
+              ),
+              if (hasSoap) ...[
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Icon(Icons.description_outlined, size: 16, color: Colors.green.shade700),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Doctor SOAP note available — tap to view',
+                      style: TextStyle(
+                        color: Colors.green.shade800,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ] else ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Tap for visit thread',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                ),
               ],
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

@@ -15,7 +15,8 @@
 /// Full index also lives in repo **`FRONTEND_API_DOCUMENTATION.md`** §13.
 ///
 /// ## Examples
-/// - **Local EMR:** `--dart-define=EMR_API_BASE_URL=http://127.0.0.1:8012/api/`
+/// - **Local EMR (iOS Simulator):** `--dart-define=EMR_API_BASE_URL=http://127.0.0.1:8012/api/`
+///   Or run: `scripts/flutter_run_ios_simulator_local_api.sh` (default port **8012**).
 /// - **Maps stays public:** (no override needed) `https://api.mywaitime.com/api/`
 /// - **Android emulator → Mac:** `http://10.0.2.2:PORT/api/`
 ///

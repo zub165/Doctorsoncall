@@ -78,6 +78,7 @@ class SyncService {
             .write(OutboxEventsCompanion(sentAt: Value(now)));
       }
     } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return;
       // keep pending; record last error for visibility
       for (final ev in events) {
         await (db.update(db.outboxEvents)
@@ -120,8 +121,9 @@ class SyncService {
       if (nextCursor != null && nextCursor.isNotEmpty) {
         await db.setState(cursorKey, nextCursor);
       }
-    } on DioException {
-      // ignore pull failures (offline)
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) return;
+      // ignore other pull failures (offline)
     }
   }
 

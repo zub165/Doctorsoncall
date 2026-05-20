@@ -3,7 +3,7 @@ import 'package:dio/dio.dart';
 import '../config/api_paths.dart';
 import 'emergency_api_client.dart';
 
-/// EMR features: appointments, providers, countries, feedback, replicate — paths follow [ApiPaths].
+/// EMR features: appointments, providers, countries, feedback, Ollama status — paths follow [ApiPaths].
 class EmrFeaturesApi {
   EmrFeaturesApi(this._c);
 
@@ -53,12 +53,73 @@ class EmrFeaturesApi {
     );
   }
 
+  Future<int> adminCreateCountry(Map<String, dynamic> body) async {
+    final r = await _c.raw.post<dynamic>(
+      ApiPaths.countriesList,
+      data: body,
+      options: Options(contentType: Headers.jsonContentType),
+    );
+    final data = r.data;
+    if (data is Map && data['id'] != null) return (data['id'] as num).toInt();
+    return 0;
+  }
+
+  Future<void> adminDeleteCountry(int id) async {
+    await _c.raw.delete<dynamic>('${ApiPaths.countriesList}$id/');
+  }
+
+  /// kind: `patient` | `doctor` | `admin`
+  Future<void> adminCreateUser({
+    required String kind,
+    required String email,
+    required String password,
+    required String name,
+    int? specialityId,
+    String? phoneNumber,
+    String? profileStatus,
+  }) async {
+    final body = <String, dynamic>{
+      'kind': kind,
+      'email': email,
+      'password': password,
+      'name': name,
+    };
+    if (specialityId != null) body['speciality_id'] = specialityId;
+    if (phoneNumber != null && phoneNumber.isNotEmpty) {
+      body['phone_number'] = phoneNumber;
+    }
+    if (profileStatus != null && profileStatus.isNotEmpty) {
+      body['profile_status'] = profileStatus;
+    }
+    await _c.raw.post<dynamic>(
+      ApiPaths.adminCreateUser,
+      data: body,
+      options: Options(contentType: Headers.jsonContentType),
+    );
+  }
+
   Future<void> adminPatchSpeciality(int id, Map<String, dynamic> patch) async {
     await _c.raw.patch<dynamic>(
       '${ApiPaths.specialitiesList}$id/',
       data: patch,
       options: Options(contentType: Headers.jsonContentType),
     );
+  }
+
+  /// Staff POST — downloads PNGs to server media and sets `speciality_image` URLs.
+  Future<Map<String, dynamic>> adminSeedSpecialityAvatars({bool force = false}) async {
+    final r = await _c.raw.post<dynamic>(
+      ApiPaths.specialitiesSeedAvatars,
+      data: {if (force) 'force': true},
+      options: Options(contentType: Headers.jsonContentType),
+    );
+    final data = r.data;
+    if (data is Map) {
+      final inner = data['data'];
+      if (inner is Map) return Map<String, dynamic>.from(inner);
+      return Map<String, dynamic>.from(data);
+    }
+    return const {};
   }
 
   Future<void> adminPatchProvider(int id, Map<String, dynamic> patch) async {
@@ -178,6 +239,15 @@ class EmrFeaturesApi {
     );
   }
 
+  /// Clears appointment ↔ chart link on the server (`medical_record_id: null`).
+  Future<void> clearAppointmentMedicalRecord(int appointmentId) async {
+    await _c.raw.patch<dynamic>(
+      '${ApiPaths.storeAppointment}$appointmentId/',
+      data: {'medical_record_id': null},
+      options: Options(contentType: Headers.jsonContentType),
+    );
+  }
+
   /// Staff PATCH `…/appointments/<id>/` — keys `date`, `time`, `status` (maps to approved on server).
   Future<void> adminPatchAppointment(int id, Map<String, dynamic> patch) async {
     await _c.raw.patch<dynamic>(
@@ -185,6 +255,38 @@ class EmrFeaturesApi {
       data: patch,
       options: Options(contentType: Headers.jsonContentType),
     );
+  }
+
+  Future<void> adminDeleteAppointment(int id) async {
+    await _c.raw.delete<dynamic>('${ApiPaths.storeAppointment}$id/');
+  }
+
+  /// Staff POST `appointments/` with `patient_id`, `provider_id`, `date`, `time`, optional `status`.
+  Future<int> adminCreateAppointment({
+    required int patientId,
+    required int providerId,
+    required String date,
+    required String time,
+    String? status,
+  }) async {
+    final r = await _c.raw.post<dynamic>(
+      ApiPaths.storeAppointment,
+      data: {
+        'patient_id': patientId,
+        'provider_id': providerId,
+        'date': date,
+        'time': time,
+        if (status != null && status.isNotEmpty) 'status': status,
+      },
+      options: Options(contentType: Headers.jsonContentType),
+    );
+    final data = r.data;
+    if (data is Map) {
+      final appt = data['appointment'] ?? (data['data'] is Map ? (data['data'] as Map)['appointment'] : null);
+      if (appt is Map && appt['id'] != null) return (appt['id'] as num).toInt();
+      if (data['id'] != null) return (data['id'] as num).toInt();
+    }
+    return 0;
   }
 
   Future<void> submitFeedback(String text) async {
@@ -213,18 +315,78 @@ class EmrFeaturesApi {
     return r.data;
   }
 
-  Future<dynamic> billingCheckout(int planId) async {
+  Future<dynamic> billingCheckout(int planId, {String platform = 'web'}) async {
     final r = await _c.raw.post<dynamic>(
       ApiPaths.billingCheckout,
-      data: {'plan_id': planId},
+      data: {'plan_id': planId, 'platform': platform},
       options: Options(contentType: Headers.jsonContentType),
     );
     return r.data;
   }
 
-  Future<dynamic> replicateToken() async {
-    final r = await _c.raw.get<dynamic>(ApiPaths.replicateToken);
+  // ── Doctor billing ──
+
+  Future<dynamic> doctorBillingSummary() async {
+    final r = await _c.raw.get<dynamic>(ApiPaths.doctorBillingSummary);
     return r.data;
+  }
+
+  Future<dynamic> doctorTransactions() async {
+    final r = await _c.raw.get<dynamic>(ApiPaths.doctorTransactions);
+    return r.data;
+  }
+
+  Future<dynamic> doctorCreateInvoice({
+    required int patientId,
+    required double amount,
+    String notes = '',
+    int? appointmentId,
+  }) async {
+    final r = await _c.raw.post<dynamic>(
+      ApiPaths.doctorCreateInvoice,
+      data: {
+        'patient_id': patientId,
+        'amount': amount,
+        'notes': notes,
+        if (appointmentId != null) 'appointment_id': appointmentId,
+      },
+      options: Options(contentType: Headers.jsonContentType),
+    );
+    return r.data;
+  }
+
+  Future<dynamic> doctorRequestPayout(double amount) async {
+    final r = await _c.raw.post<dynamic>(
+      ApiPaths.doctorRequestPayout,
+      data: {'amount': amount},
+      options: Options(contentType: Headers.jsonContentType),
+    );
+    return r.data;
+  }
+
+  // ── Patient billing ──
+
+  Future<dynamic> patientBills() async {
+    final r = await _c.raw.get<dynamic>(ApiPaths.patientBills);
+    return r.data;
+  }
+
+  Future<dynamic> patientPayBill(int transactionId) async {
+    final r = await _c.raw.post<dynamic>(
+      ApiPaths.patientPayBill,
+      data: {'transaction_id': transactionId},
+      options: Options(contentType: Headers.jsonContentType),
+    );
+    return r.data;
+  }
+
+  /// `GET /api/integrations/ollama-status/` — Llama on server (GoDaddy Ollama).
+  Future<Map<String, dynamic>> ollamaStatus() async {
+    final r = await _c.raw.get<dynamic>(ApiPaths.ollamaStatus);
+    final data = r.data;
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return const {};
   }
 
   Future<dynamic> providerApply({

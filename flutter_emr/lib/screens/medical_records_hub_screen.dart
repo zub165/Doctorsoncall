@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/medical_record.dart';
+import '../services/consented_ai_assist.dart';
 import '../services/emergency_api_client.dart';
 import '../services/emr_features_api.dart';
 import '../services/medical_records_api.dart';
@@ -15,6 +16,8 @@ import '../services/offline_db.dart';
 import '../services/sync_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/api_access_placeholder.dart';
+import '../widgets/ai_disclosure_banner.dart';
+import '../widgets/medical_disclaimer_banner.dart';
 import 'medical_record_detail_screen.dart';
 
 /// Records list + AI assistant (matches **`/api/medical-records/`** family on the server).
@@ -67,7 +70,7 @@ class _MedicalRecordsHubScreenState extends State<MedicalRecordsHubScreen>
           child: TabBarView(
             controller: _tab,
             children: [
-              _RecordsTab(api: _api, apiClient: widget.apiClient),
+              _RecordsTab(api: _api, apiClient: widget.apiClient, role: widget.role),
               _AiAssistantTab(api: _api),
               _DocumentsTab(api: _api, apiClient: widget.apiClient),
               _ShareTab(api: _api, apiClient: widget.apiClient, role: widget.role),
@@ -454,6 +457,14 @@ class _ShareTabState extends State<_ShareTab> {
                             : (providerName.isEmpty ? 'Doctor share' : providerName),
                         style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
+                      if ((s['share_kind'] ?? '').toString() == 'triage') ...[
+                        const SizedBox(height: 6),
+                        Chip(
+                          label: const Text('Triage vitals'),
+                          backgroundColor: Colors.teal.shade100,
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ],
                       if (note.isNotEmpty) ...[
                         const SizedBox(height: 6),
                         Text(note, style: TextStyle(color: Colors.grey.shade800)),
@@ -683,7 +694,19 @@ Chief complaint, History, Medications, Allergies, Labs/Imaging, Assessment/Plan.
 DOCUMENT OCR:
 $text
 ''';
-      final res = await widget.api.aiAssist(
+      if (!mounted) return;
+      final allowed = await ConsentedAiAssist.ensureConsent(
+        context,
+        includesHealthRecords: true,
+      );
+      if (!allowed) {
+        if (!mounted) return;
+        setState(() => _summarizing = false);
+        showAiConsentDeniedSnackBar(context);
+        return;
+      }
+      if (!mounted) return;
+      final res = await ConsentedAiAssist(widget.api).assist(
         query: prompt,
         kind: 'doctor_summary',
       );
@@ -1075,10 +1098,11 @@ $text
 }
 
 class _RecordsTab extends StatefulWidget {
-  const _RecordsTab({required this.api, required this.apiClient});
+  const _RecordsTab({required this.api, required this.apiClient, this.role});
 
   final MedicalRecordsApi api;
   final EmergencyApiClient apiClient;
+  final String? role;
 
   @override
   State<_RecordsTab> createState() => _RecordsTabState();
@@ -1123,7 +1147,17 @@ Chief complaint, History, Medications, Allergies, Labs/Imaging, Assessment/Plan.
 RECORD:
 $fetched
 ''';
-        final res = await widget.api.aiAssist(
+        if (!context.mounted) return;
+        final allowed = await ConsentedAiAssist.ensureConsent(
+          context,
+          includesHealthRecords: true,
+        );
+        if (!allowed) {
+          err = 'AI sharing not allowed';
+          return;
+        }
+        if (!context.mounted) return;
+        final res = await ConsentedAiAssist(widget.api).assist(
           query: prompt,
           kind: 'doctor_summary',
         );
@@ -1393,11 +1427,14 @@ $fetched
             );
           }
           final list = snap.data ?? [];
+          final isPatient = _recordsTabIsPatient(widget.role);
           if (list.isEmpty) {
             return ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(24),
               children: [
+                if (isPatient) VisitNotesFromDoctorPanel(api: widget.api),
+                if (isPatient) const SizedBox(height: 16),
                 SizedBox(height: MediaQuery.of(context).size.height * 0.12),
                 Icon(
                   Icons.article_outlined,
@@ -1439,6 +1476,10 @@ $fetched
               if (i == 0) {
                 return Column(
                   children: [
+                    if (isPatient) ...[
+                      VisitNotesFromDoctorPanel(api: widget.api),
+                      const SizedBox(height: 10),
+                    ],
                     Card(
                       color: AppColors.primary.withValues(alpha: 0.08),
                       child: ListTile(
@@ -1467,11 +1508,23 @@ $fetched
                       ),
                     ),
                     const SizedBox(height: 10),
-                    _RecordTile(theme: theme, r: r, api: widget.api),
+                    _RecordTile(
+                      theme: theme,
+                      r: r,
+                      api: widget.api,
+                      db: _db,
+                      onDeleted: _reload,
+                    ),
                   ],
                 );
               }
-              return _RecordTile(theme: theme, r: r, api: widget.api);
+              return _RecordTile(
+                theme: theme,
+                r: r,
+                api: widget.api,
+                db: _db,
+                onDeleted: _reload,
+              );
             },
           );
         },
@@ -1482,11 +1535,74 @@ $fetched
 }
 
 class _RecordTile extends StatelessWidget {
-  const _RecordTile({required this.theme, required this.r, required this.api});
+  const _RecordTile({
+    required this.theme,
+    required this.r,
+    required this.api,
+    required this.db,
+    required this.onDeleted,
+  });
 
   final ThemeData theme;
   final MedicalRecord r;
   final MedicalRecordsApi api;
+  final OfflineDb db;
+  final VoidCallback onDeleted;
+
+  bool get _isDeviceOnly =>
+      r.raw['local_only'] == true ||
+      r.raw['hipaa_device_only'] == true ||
+      !MedicalRecordsApi.isServerNumericId(r.id);
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    bool deleteFromServer = false;
+    if (MedicalRecordsApi.isServerNumericId(r.id)) {
+      final choice = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Delete record?'),
+          content: const Text(
+            'Remove from this phone. Also delete the server copy if one exists?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('This phone only'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Colors.red.shade700),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Phone + server'),
+            ),
+          ],
+        ),
+      );
+      if (choice == null || !context.mounted) return;
+      deleteFromServer = choice;
+    }
+    if (!context.mounted) return;
+    try {
+      await api.purgeRecord(
+        db: db,
+        recordId: r.id,
+        deleteFromServer: deleteFromServer,
+      );
+      onDeleted();
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Record deleted')),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Delete failed: $e')),
+      );
+    }
+  }
 
   String _formatDate(DateTime d) {
     return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -1512,6 +1628,17 @@ class _RecordTile extends StatelessWidget {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (_isDeviceOnly)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  'This device only',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: Colors.teal.shade800,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
             if (r.recordType != null)
               Text(r.recordType!, style: theme.textTheme.bodySmall),
             Text(
@@ -1551,7 +1678,29 @@ class _RecordTile extends StatelessWidget {
             ],
           ],
         ),
-        trailing: const Icon(Icons.chevron_right_rounded),
+        trailing: PopupMenuButton<String>(
+          onSelected: (v) {
+            if (v == 'open') {
+              Navigator.of(context).push<void>(
+                MaterialPageRoute<void>(
+                  builder: (_) => MedicalRecordDetailScreen(
+                    api: api,
+                    recordId: r.id,
+                    preview: r,
+                    offlineDb: db,
+                    onDeleted: onDeleted,
+                  ),
+                ),
+              );
+            } else if (v == 'delete') {
+              _confirmDelete(context);
+            }
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'open', child: Text('Open')),
+            PopupMenuItem(value: 'delete', child: Text('Delete')),
+          ],
+        ),
         onTap: () {
           Navigator.of(context).push<void>(
             MaterialPageRoute<void>(
@@ -1559,6 +1708,8 @@ class _RecordTile extends StatelessWidget {
                 api: api,
                 recordId: r.id,
                 preview: r,
+                offlineDb: db,
+                onDeleted: onDeleted,
               ),
             ),
           );
@@ -1585,6 +1736,7 @@ class _CreateMedicalRecordScreen extends StatefulWidget {
 }
 
 class _CreateMedicalRecordScreenState extends State<_CreateMedicalRecordScreen> {
+  bool _keepOnDeviceOnly = true;
   final _hospitalName = TextEditingController();
   final _hospitalId = TextEditingController();
   final _presenting = TextEditingController();
@@ -1700,7 +1852,17 @@ class _CreateMedicalRecordScreenState extends State<_CreateMedicalRecordScreen> 
         ..writeln('Labs: ${_labs.map((m) => m['name'] ?? m.toString()).join(', ')}')
         ..writeln('Imaging: ${_imaging.map((m) => m['name'] ?? m.toString()).join(', ')}');
 
-      final res = await widget.api.aiAssist(
+      if (!mounted) return;
+      final allowed = await ConsentedAiAssist.ensureConsent(
+        context,
+        includesHealthRecords: true,
+      );
+      if (!allowed) {
+        showAiConsentDeniedSnackBar(context);
+        return;
+      }
+      if (!mounted) return;
+      final res = await ConsentedAiAssist(widget.api).assist(
         query: prompt.toString(),
         kind: 'doctor_summary',
       );
@@ -1735,14 +1897,19 @@ class _CreateMedicalRecordScreenState extends State<_CreateMedicalRecordScreen> 
       aiHighlight: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
       raw: {
         'source': 'offline_create',
+        'local_only': _keepOnDeviceOnly,
+        'hipaa_device_only': _keepOnDeviceOnly,
       },
     );
 
-    await widget.api.saveOffline(db: widget.db, record: record);
-    // Best-effort: try to sync immediately (safe if offline).
-    try {
-      await SyncService(client: widget.apiClient, db: widget.db).syncAll();
-    } catch (_) {}
+    if (_keepOnDeviceOnly) {
+      await widget.api.saveOfflineLocalOnly(db: widget.db, record: record);
+    } else {
+      await widget.api.saveOffline(db: widget.db, record: record, uploadToServer: true);
+      try {
+        await SyncService(client: widget.apiClient, db: widget.db).syncAll();
+      } catch (_) {}
+    }
     if (!mounted) return;
     Navigator.of(context).pop();
   }
@@ -1762,6 +1929,16 @@ class _CreateMedicalRecordScreenState extends State<_CreateMedicalRecordScreen> 
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          SwitchListTile(
+            value: _keepOnDeviceOnly,
+            onChanged: (v) => setState(() => _keepOnDeviceOnly = v),
+            title: const Text('Keep on this device only'),
+            subtitle: const Text(
+              'Recommended: chart is not uploaded to the server (HIPAA-friendly). '
+              'Turn off only if you need server backup or appointment linking.',
+            ),
+          ),
+          const Divider(),
           TextField(
             controller: _hospitalName,
             decoration: const InputDecoration(labelText: 'Hospital name'),
@@ -2087,7 +2264,14 @@ class _AiAssistantTabState extends State<_AiAssistantTab> {
       _error = null;
     });
     try {
-      final res = await widget.api.aiAssist(
+      if (!mounted) return;
+      final allowed = await ConsentedAiAssist.ensureConsent(context);
+      if (!allowed) {
+        showAiConsentDeniedSnackBar(context);
+        return;
+      }
+      if (!mounted) return;
+      final res = await ConsentedAiAssist(widget.api).assist(
         query: q,
         kind: 'patient_summary',
       );
@@ -2132,8 +2316,7 @@ class _AiAssistantTabState extends State<_AiAssistantTab> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'AI responses are informational only — not a diagnosis. '
-                    'Always follow your clinician’s advice.',
+                    MedicalDisclaimerBanner.playStoreText,
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: Colors.deepPurple.shade900,
                     ),
@@ -2143,6 +2326,8 @@ class _AiAssistantTabState extends State<_AiAssistantTab> {
             ),
           ),
         ),
+        const SizedBox(height: 12),
+        const AiDisclosureBanner(compact: true),
         const SizedBox(height: 16),
         TextField(
           controller: _controller,
@@ -2186,6 +2371,150 @@ class _AiAssistantTabState extends State<_AiAssistantTab> {
           _buildAiResponseCard(theme),
         ],
       ],
+    );
+  }
+}
+
+bool _recordsTabIsPatient(String? role) {
+  final r = (role ?? '').toLowerCase().trim();
+  if (r.isEmpty) return true;
+  return r == 'patient' ||
+      (!r.contains('doctor') &&
+          !r.contains('provider') &&
+          !r.contains('admin') &&
+          !r.contains('staff'));
+}
+
+/// Patient view: SOAP notes sent by their doctor(s).
+class VisitNotesFromDoctorPanel extends StatefulWidget {
+  const VisitNotesFromDoctorPanel({super.key, required this.api, this.appointmentId});
+
+  final MedicalRecordsApi api;
+  final int? appointmentId;
+
+  @override
+  State<VisitNotesFromDoctorPanel> createState() => _VisitNotesFromDoctorPanelState();
+}
+
+class _VisitNotesFromDoctorPanelState extends State<VisitNotesFromDoctorPanel> {
+  late Future<List<Map<String, dynamic>>> _future = _load();
+
+  Future<List<Map<String, dynamic>>> _load() {
+    return widget.api.listVisitNotes(appointmentId: widget.appointmentId);
+  }
+
+  void _reload() {
+    setState(() => _future = _load());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _future,
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+          return const Card(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Center(
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ),
+          );
+        }
+        if (snap.hasError) return const SizedBox.shrink();
+        final rows = snap.data ?? const [];
+        if (rows.isEmpty) return const SizedBox.shrink();
+
+        return Card(
+          color: Colors.green.shade50,
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.medical_information_outlined, color: Colors.green.shade800),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        widget.appointmentId == null
+                            ? 'Doctor visit notes (SOAP)'
+                            : 'SOAP for this appointment',
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: _reload,
+                      icon: const Icon(Icons.refresh_rounded, size: 20),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                for (final n in rows) VisitNoteTile(note: n),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class VisitNoteTile extends StatelessWidget {
+  const VisitNoteTile({super.key, required this.note});
+  final Map<String, dynamic> note;
+
+  @override
+  Widget build(BuildContext context) {
+    final prov = note['provider'] is Map
+        ? (note['provider'] as Map)['full_name']?.toString()
+        : '';
+    final title = prov != null && prov.isNotEmpty ? 'Dr. $prov' : 'Doctor note';
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ExpansionTile(
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+        subtitle: Text(() {
+          final raw = (note['created_at'] ?? '').toString();
+          return raw.length >= 10 ? raw.substring(0, 10) : 'Visit note';
+        }()),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _soapLine('Subjective', note['subjective']),
+                _soapLine('Objective', note['objective']),
+                _soapLine('Assessment', note['assessment']),
+                _soapLine('Plan', note['plan']),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static Widget _soapLine(String label, dynamic value) {
+    final t = (value ?? '').toString().trim();
+    if (t.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+          const SizedBox(height: 2),
+          Text(t),
+        ],
+      ),
     );
   }
 }
