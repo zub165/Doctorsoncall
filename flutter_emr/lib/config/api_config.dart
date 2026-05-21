@@ -4,17 +4,17 @@
 ///
 /// | App area | Base URL | Auth |
 /// |----------|----------|------|
-/// | Hospitals / ER search / wait times | `https://api.mywaitime.com/api/` | None for read APIs |
+/// | Hospitals live search | `https://api.docsoncalls.com/api/hospitals/search/` | None — Django proxies to MyWaitime :3015 via nginx |
 /// | Login, appointments, billing, records | `https://api.docsoncalls.com/api/` | `Authorization: Token …` |
 ///
-/// Production: never use `:3015`, `127.0.0.1`, or host-only URLs in release builds.
+/// Production phones must **not** call `api.mywaitime.com` directly; use EMR (same VPS, nginx → gunicorn 8012 → Finder 3015).
 /// No `MYWAITIME_API_KEY` in the client. TomTom tiles/geocode go through `/api/tomtom/*` on EMR.
 ///
 /// See **`docs/HOSPITALS_TAB_FRONTEND.md`** for full copy/paste spec.
 ///
 /// ## 1 — Base URL (config)
 /// - **`EMR_API_BASE_URL = https://api.docsoncalls.com/api/`** (GoDaddy production)
-/// - **`MAPS_API_BASE_URL = https://api.mywaitime.com/api/`** (Hospitals live search first)
+/// - **`MAPS_API_BASE_URL`** — optional; defaults to EMR URL (hospitals go through nginx proxy)
 ///
 /// ### GoDaddy VPS (gunicorn :8012 behind nginx)
 /// - **Phones / TestFlight / Play Store** must use **`https://api.docsoncalls.com/api/`** only.
@@ -55,10 +55,10 @@ class ApiConfig {
     defaultValue: 'https://api.docsoncalls.com/api/',
   );
 
-  /// Maps / ER time backend (legacy).
+  /// Hospitals / wait-time client base — production default is EMR (nginx → MyWaitime :3015).
   static const String mapsApiBaseUrl = String.fromEnvironment(
     'MAPS_API_BASE_URL',
-    defaultValue: 'https://api.mywaitime.com/api/',
+    defaultValue: emrApiBaseUrl,
   );
 
   /// Back-compat alias for older call sites.

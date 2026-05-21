@@ -245,12 +245,13 @@ class CatalogApi {
         if (r.data is Map) {
           final m = Map<String, dynamic>.from(r.data as Map);
           if (m['upstream_degraded'] == true) upstreamDegraded = true;
-          final src = (m['source'] ?? '').toString();
-          if (src == 'emr_catalog') upstreamDegraded = true; // not Finder :3015
+          final src = (m['source'] ?? '').toString().toLowerCase();
+          if (src == 'emr_catalog') upstreamDegraded = true;
           final isFinderDb = src == 'local_database' ||
               src == 'mywaitime' ||
               src.contains('finder') ||
               (ApiEnvelope.isSuccess(m) && m['data'] is List);
+          if (isFinderDb) upstreamDegraded = false;
           final found = m['total_found'] ?? m['totalFound'];
           final geo = m['geo_note']?.toString();
           if (geo != null && geo.isNotEmpty) {

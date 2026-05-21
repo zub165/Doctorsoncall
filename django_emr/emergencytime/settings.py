@@ -38,7 +38,7 @@ ADMIN_REGISTER_CODE = os.environ.get("ADMIN_REGISTER_CODE", "DoctorAdmin2026!")
 # Hospital Finder / live ER search (server-side proxy only).
 # EMR reads MYWAITIME_UPSTREAM_API_BASE — not MYWAITIME_API_KEY or HOSPITAL_FINDER_API_BASE.
 # VPS example: http://127.0.0.1:3015/api/ (nginx → Finder on :3015).
-# Flutter app calls https://api.mywaitime.com/api/ directly (no API key in the client).
+# Flutter app calls GET /api/hospitals/search/ on EMR (nginx → this upstream). No MyWaitime URL in the client.
 # Put MYWAITIME_API_* keys in the Hospital Finder service .env, not django_emr/.env.
 # Same-VPS production: http://127.0.0.1:3015/api/ (Hospital Finder gunicorn + DB).
 # Public fallback only when Finder is on another host.

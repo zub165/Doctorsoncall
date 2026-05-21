@@ -5,7 +5,6 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
-import '../config/api_config.dart';
 import '../models/hospital.dart';
 import '../services/catalog_api.dart';
 import '../services/emergency_api_client.dart';
@@ -31,9 +30,7 @@ class HospitalsListScreen extends StatefulWidget {
 }
 
 class _HospitalsListScreenState extends State<HospitalsListScreen> {
-  late final EmergencyApiClient _mapsClient =
-      EmergencyApiClient.maps(tokenRepository: widget.apiClient.tokenRepo);
-  late final CatalogApi _api = CatalogApi(_mapsClient);
+  /// Live search uses EMR only: phone → nginx :443 → gunicorn :8012 → MyWaitime :3015.
   late final CatalogApi _emrApi = CatalogApi(widget.apiClient);
   late Future<HospitalsListResult> _future;
 
@@ -79,8 +76,7 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
       );
     }
 
-    // Live tab: Finder (api.mywaitime.com) first; EMR proxy if phone cannot reach Finder.
-    final finderBase = ApiConfig.mapsApiBaseUrl;
+    // Live tab: MyWaitime Finder DB via EMR nginx only (no direct api.mywaitime.com from the app).
     final emrBase = widget.apiClient.emrApiBaseUrl;
     final radiusM = radiusMetersForUnit(_distanceUnit);
     const liveMaxKm = 150.0;
@@ -90,33 +86,36 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
       if (result.needsSignIn) return result;
       if (result.hasError) return result;
       if (result.hospitals.isEmpty) return result;
-      if (!result.hospitals.hasAnyNear(_geoLat!, _geoLon!, liveMaxKm)) {
+
+      var rows = result.hospitals.nearLocation(_geoLat!, _geoLon!, liveMaxKm);
+      if (rows.isEmpty) {
+        rows = result.hospitals
+            .where((h) => h.latitude.abs() > 1e-5 && h.longitude.abs() > 1e-5)
+            .toList();
+      }
+      rows = _applyTypeFilter(rows);
+      if (rows.isEmpty) {
         return result.copyWith(
           hospitals: const [],
           geoNote: _appendGeoNote(
-            'Hospitals returned but none within ${liveMaxKm.toStringAsFixed(0)} km.',
+            'No ${_filterLabel()} facilities within ${liveMaxKm.toStringAsFixed(0)} km.',
             usedFallback,
           ),
         );
       }
       return result.copyWith(
-        hospitals: _applyTypeFilter(result.hospitals),
+        hospitals: rows,
         geoNote: _appendGeoNote(
-          via ?? result.geoNote ?? 'Live hospital search',
+          via ??
+              result.geoNote ??
+              'MyWaitime via nginx → $emrBase hospitals/search/',
           usedFallback,
         ),
+        apiSource: emrBase,
       );
     }
 
-    Future<HospitalsListResult> finderSearch(String searchType) =>
-        _api.loadFinderHospitalSearch(
-          lat: _geoLat!,
-          lon: _geoLon!,
-          radiusM: radiusM,
-          type: searchType,
-        );
-
-    Future<HospitalsListResult> emrProxySearch(String searchType) =>
+    Future<HospitalsListResult> nginxFinderSearch(String searchType) =>
         _emrApi.loadWaitimeHospitalSearch(
           lat: _geoLat!,
           lon: _geoLon!,
@@ -124,64 +123,38 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
           type: searchType,
         );
 
-    Future<HospitalsListResult> loadWithFallback(String searchType) async {
-      var direct = await finderSearch(searchType);
-      if (!direct.hasError && direct.hospitals.isNotEmpty) {
-        return finalize(
-          direct,
-          via: '${direct.geoNote ?? 'Finder'} · $finderBase',
-        );
-      }
-
-      final proxy = await emrProxySearch(searchType);
-      if (!proxy.hasError && proxy.hospitals.isNotEmpty) {
-        return finalize(
-          proxy,
-          via:
-              '${proxy.geoNote ?? 'Live search'} · $emrBase (Finder direct unreachable)',
-        );
-      }
-
-      if (direct.hasError && proxy.hasError) {
-        return HospitalsListResult(
-          hospitals: const [],
-          upstreamDegraded: true,
-          errorMessage:
-              'Hospital search unavailable. Finder: ${direct.errorMessage}. '
-              'EMR proxy: ${proxy.errorMessage}',
-          geoNote: _appendGeoNote(
-            'Check $finderBase and $emrBase hospitals/search/. Pull to retry.',
-            usedFallback,
-          ),
-          apiSource: finderBase,
-        );
-      }
-
-      return direct.hasError ? proxy : direct;
+    var live = await nginxFinderSearch(type);
+    if (!live.hasError && live.hospitals.isNotEmpty) {
+      return finalize(live);
     }
 
-    var live = await loadWithFallback(type);
-    if (live.hospitals.isNotEmpty) return live;
-
     if (type != 'emergency') {
-      live = await loadWithFallback('emergency');
-      if (live.hospitals.isNotEmpty) {
-        return live.copyWith(
-          geoNote: _appendGeoNote(
-            '${live.geoNote ?? 'Live search'} · showing Emergency Room near you',
-            usedFallback,
-          ),
+      live = await nginxFinderSearch('emergency');
+      if (!live.hasError && live.hospitals.isNotEmpty) {
+        return finalize(
+          live,
+          via: '${live.geoNote ?? 'Finder DB'} · ${_filterLabel()} near you',
         );
+      }
+    }
+
+    if (type != 'all') {
+      live = await nginxFinderSearch('all');
+      if (!live.hasError && live.hospitals.isNotEmpty) {
+        return finalize(live);
       }
     }
 
     if (live.hasError) {
       return live.copyWith(
         upstreamDegraded: true,
+        errorMessage: live.errorMessage ??
+            'Hospital Finder unavailable via $emrBase (nginx → :3015).',
         geoNote: _appendGeoNote(
-          live.errorMessage ?? 'Hospital search failed. Pull to refresh.',
+          'On VPS: Hospital Finder on 3015 and MYWAITIME_UPSTREAM_API_BASE=http://127.0.0.1:3015/api/',
           usedFallback,
         ),
+        apiSource: emrBase,
       );
     }
 
@@ -191,7 +164,7 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
         'No hospitals near you for ${_filterLabel()}. Try another category or pull to refresh.',
         usedFallback,
       ),
-      apiSource: finderBase,
+      apiSource: emrBase,
     );
   }
 

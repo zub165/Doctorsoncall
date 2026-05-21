@@ -26,33 +26,13 @@ export function Hospitals() {
       else if (kind === 'hospital') params.type = 'general';
       else if (kind === 'clinic') params.type = 'clinic';
 
-      // Prefer nearby search when we have coordinates (EMR proxy → Finder, then direct Maps).
+      // Live search: EMR API only (nginx → gunicorn :8012 → MyWaitime Finder :3015).
       if (Number.isFinite(Number(lat)) && Number.isFinite(Number(lon))) {
-        try {
-          const res = await emrApi.get(ApiPaths.hospitalsSearch, { params });
-          data = res.data;
-        } catch (e) {
-          try {
-            const res2 = await mapsApi.get(ApiPaths.hospitalsSearch, { params });
-            data = res2.data;
-          } catch (e2) {
-            const res3 = await emrApi.get(ApiPaths.hospitals);
-            data = res3.data;
-          }
-        }
+        const res = await emrApi.get(ApiPaths.hospitalsSearch, { params });
+        data = res.data;
       } else {
-        try {
-          const res = await mapsApi.get(ApiPaths.hospitals);
-          data = res.data;
-        } catch (e) {
-          const code = Number(e?.response?.status);
-          if (code === 401 || code === 403) {
-            const res2 = await emrApi.get(ApiPaths.hospitals);
-            data = res2.data;
-          } else {
-            throw e;
-          }
-        }
+        const res = await emrApi.get(ApiPaths.hospitals);
+        data = res.data;
       }
 
       const items = Array.isArray(data) ? data : data?.results || data?.data?.results || data?.data || [];

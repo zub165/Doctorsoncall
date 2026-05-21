@@ -4,7 +4,7 @@ set -euo pipefail
 #
 # App URLs (never :3015, :8012, or 127.0.0.1 in release):
 #   EMR_API_BASE_URL  → https://api.docsoncalls.com/api/  (override: FLUTTER_EMR_API_BASE_URL)
-#   MAPS_API_BASE_URL → https://api.mywaitime.com/api/     (compile-time default; not passed here)
+#   MAPS_API_BASE_URL → same as EMR (hospitals/search/ proxied to MyWaitime :3015 on VPS)
 #     Optional override: FLUTTER_MAPS_API_BASE_URL=... on flutter run/build only
 #
 # VPS: nginx :443 → gunicorn 127.0.0.1:8012; django_emr .env MYWAITIME_UPSTREAM_API_BASE =
@@ -64,7 +64,7 @@ if [[ "${1:-}" == "build" ]]; then
   if [[ ${#MAPS_DEFINES[@]} -gt 0 ]]; then
     echo "    Maps: ${FLUTTER_MAPS_API_BASE_URL} (override)"
   else
-    echo "    Maps: https://api.mywaitime.com/api/ (ApiConfig default — not overridden)"
+    echo "    Hospitals: via EMR nginx → MyWaitime :3015 (MAPS_API_BASE_URL defaults to EMR)"
   fi
   echo "    Subscriptions: direct App Store / Google Play (in_app_purchase) + Stripe for extra visits"
   flutter pub get
