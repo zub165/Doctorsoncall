@@ -36,6 +36,16 @@ class Plan(models.Model):
     discount_date = models.DateField(blank=True, null=True)
     number_appointments = models.CharField(max_length=64)
     ai_bot = models.CharField(max_length=64)
+    revenuecat_product_id = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="App Store / Play product id (e.g. doc_gold_monthly)",
+    )
+    revenuecat_entitlement_id = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="RevenueCat entitlement id (e.g. plus)",
+    )
 
     class Meta:
         db_table = "plan"
@@ -135,6 +145,8 @@ class Provider(models.Model):
     registered_date = models.DateTimeField(null=True, blank=True)
     last_login = models.DateTimeField(null=True, blank=True)
     whatsapp_number = models.CharField(max_length=32, blank=True)
+    stripe_connect_account_id = models.CharField(max_length=255, blank=True)
+    stripe_connect_onboarded = models.BooleanField(default=False)
 
     class Meta:
         db_table = "providers"
@@ -238,6 +250,17 @@ class ImportInbox(models.Model):
 
 
 class Feedback(models.Model):
+    class ReviewerRole(models.TextChoices):
+        PATIENT = "patient", "patient"
+        PROVIDER = "provider", "provider"
+        ADMIN = "admin", "admin"
+        GUEST = "guest", "guest"
+
+    class SubjectType(models.TextChoices):
+        PROVIDER = "provider", "provider"
+        PATIENT = "patient", "patient"
+        GENERAL = "general", "general"
+
     # Allow anonymous feedback (mobile apps may submit before login).
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -246,8 +269,46 @@ class Feedback(models.Model):
         blank=True,
         related_name="feedback_items",
     )
+    reviewer_role = models.CharField(
+        max_length=16,
+        choices=ReviewerRole.choices,
+        default=ReviewerRole.GUEST,
+        blank=True,
+    )
+    subject_type = models.CharField(
+        max_length=16,
+        choices=SubjectType.choices,
+        default=SubjectType.GENERAL,
+        blank=True,
+    )
+    provider = models.ForeignKey(
+        "Provider",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="feedback_received",
+    )
+    patient = models.ForeignKey(
+        "Patient",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="feedback_received",
+    )
+    appointment = models.ForeignKey(
+        "Appointment",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="feedback_items",
+    )
+    overall_rating = models.PositiveSmallIntegerField(null=True, blank=True)
+    rating_communication = models.PositiveSmallIntegerField(null=True, blank=True)
+    rating_care_quality = models.PositiveSmallIntegerField(null=True, blank=True)
+    rating_ease = models.PositiveSmallIntegerField(null=True, blank=True)
+    rating_recommend = models.PositiveSmallIntegerField(null=True, blank=True)
+    responses = models.JSONField(default=dict, blank=True)
     feedback = models.TextField()
-    # Use default so migrations don't prompt for existing rows.
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
@@ -420,11 +481,35 @@ class PatientShare(models.Model):
         VIEWED = "viewed", "viewed"
         DELETED = "deleted", "deleted"
 
+    class ShareKind(models.TextChoices):
+        GENERAL = "general", "general"
+        TRIAGE = "triage", "triage"
+
     patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name="shares")
     provider = models.ForeignKey(Provider, on_delete=models.CASCADE, related_name="shares_inbox")
     patient_note = models.TextField(blank=True)
     ai_summary = models.TextField(blank=True)
     include_patient_email = models.BooleanField(default=False)
+    share_kind = models.CharField(
+        max_length=16,
+        choices=ShareKind.choices,
+        default=ShareKind.GENERAL,
+    )
+    triage_payload = models.TextField(blank=True)
+    vital = models.ForeignKey(
+        PatientVital,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="shares",
+    )
+    appointment = models.ForeignKey(
+        Appointment,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="patient_shares",
+    )
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.SENT)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -433,9 +518,44 @@ class PatientShare(models.Model):
         ordering = ["-id"]
 
 
+class VisitNote(models.Model):
+    """
+    Provider SOAP note delivered to the patient (server copy).
+    Optionally linked to an appointment and/or medical record for the visit thread.
+    """
+
+    patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name="visit_notes")
+    provider = models.ForeignKey(Provider, on_delete=models.CASCADE, related_name="visit_notes")
+    appointment = models.ForeignKey(
+        Appointment,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="visit_notes",
+    )
+    medical_record = models.ForeignKey(
+        MedicalRecord,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="visit_notes",
+    )
+    subjective = models.TextField(blank=True)
+    objective = models.TextField(blank=True)
+    assessment = models.TextField(blank=True)
+    plan = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "visit_notes"
+        ordering = ["-id"]
+
+
 class PatientSubscription(models.Model):
     """
-    Stripe-backed plan subscription for a patient.
+    RevenueCat-backed plan subscription for a patient.
+    Supports Apple IAP (App Store) and Google Play via RevenueCat.
     """
 
     class Status(models.TextChoices):
@@ -447,11 +567,71 @@ class PatientSubscription(models.Model):
     patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name="subscriptions")
     plan = models.ForeignKey(Plan, on_delete=models.PROTECT, related_name="subscriptions")
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
-    stripe_customer_id = models.CharField(max_length=255, blank=True)
-    stripe_session_id = models.CharField(max_length=255, blank=True)
-    stripe_subscription_id = models.CharField(max_length=255, blank=True)
+    revenuecat_product_id = models.CharField(max_length=255, blank=True)
+    revenuecat_entitlement_id = models.CharField(max_length=255, blank=True)
+    platform = models.CharField(max_length=16, default="apple", help_text="apple or android")
+    original_transaction_id = models.CharField(max_length=255, blank=True)
+    store_country = models.CharField(max_length=8, blank=True)
+    will_renew = models.BooleanField(default=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "patient_subscriptions"
+        ordering = ["-id"]
+
+
+class ProviderTransaction(models.Model):
+    """
+    Tracks payments from patients to doctors for medical services.
+    Platform takes a commission percentage.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "pending"
+        COMPLETED = "completed", "completed"
+        REFUNDED = "refunded", "refunded"
+        FAILED = "failed", "failed"
+
+    appointment = models.ForeignKey(
+        Appointment, on_delete=models.SET_NULL, null=True, blank=True, related_name="transactions"
+    )
+    patient = models.ForeignKey(Patient, on_delete=models.CASCADE, related_name="transactions")
+    provider = models.ForeignKey(Provider, on_delete=models.CASCADE, related_name="transactions")
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    platform_commission_percent = models.DecimalField(max_digits=5, decimal_places=2, default=15.00)
+    platform_fee = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    provider_payout = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    stripe_payment_intent_id = models.CharField(max_length=255, blank=True)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "provider_transactions"
+        ordering = ["-id"]
+
+
+class ProviderPayout(models.Model):
+    """
+    Tracks when a doctor withdraws their accumulated earnings.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "pending"
+        PAID = "paid", "paid"
+        FAILED = "failed", "failed"
+
+    provider = models.ForeignKey(Provider, on_delete=models.CASCADE, related_name="payouts")
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    stripe_transfer_id = models.CharField(max_length=255, blank=True)
+    notes = models.TextField(blank=True)
+    requested_at = models.DateTimeField(auto_now_add=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "provider_payouts"
         ordering = ["-id"]

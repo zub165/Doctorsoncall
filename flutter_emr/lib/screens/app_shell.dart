@@ -22,6 +22,8 @@ import 'medical_records_hub_screen.dart';
 import 'provider_apply_screen.dart';
 import 'replicate_token_screen.dart';
 import 'ai_assistant_screen.dart';
+import 'patient_billing_screen.dart';
+import 'doctor_billing_screen.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({
@@ -115,6 +117,44 @@ class _AppShellState extends State<AppShell> {
               _tile(context, 6, Icons.event_note_outlined, 'Appointments'),
               if (!isPatient) _tile(context, 7, Icons.video_call_outlined, 'Doctor visit'),
               if (isPatient) _tile(context, 8, Icons.add_circle_outline, 'Book appointment'),
+              if (isPatient)
+                ListTile(
+                  leading: Icon(
+                    Icons.payments_outlined,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  title: const Text('My bills (pay doctor)'),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => PatientBillingScreen(apiClient: c),
+                      ),
+                    );
+                  },
+                ),
+              if (isDoctor)
+                ListTile(
+                  leading: Icon(
+                    Icons.account_balance_wallet_outlined,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  title: const Text('Doctor billing & Stripe'),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => DoctorBillingScreen(apiClient: c),
+                      ),
+                    );
+                  },
+                ),
               _tile(context, 9, Icons.explore_outlined, 'Discovery'),
               if (isAdmin || isDoctor) _tile(context, 10, Icons.link_outlined, 'Patients ↔ providers'),
               _tile(context, 11, Icons.feedback_outlined, 'Feedback'),
@@ -211,7 +251,7 @@ class _AppShellState extends State<AppShell> {
           ),
           DiscoveryScreen(apiClient: c),
           PatientsProvidersScreen(apiClient: c, role: widget.role),
-          FeedbackScreen(apiClient: c),
+          FeedbackScreen(apiClient: c, role: widget.role),
           SettingsScreen(apiClient: c, offlineDb: widget.offlineDb),
           ChangePasswordScreen(apiClient: c),
           ClientHubScreen(

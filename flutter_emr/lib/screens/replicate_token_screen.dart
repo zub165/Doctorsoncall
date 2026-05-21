@@ -29,7 +29,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late Future<_ConnState> _f = _load();
   bool _deletingAccount = false;
 
-  static const _deleteSupportEmail = 'zub165@yahoo.com';
+  static const _deleteSupportEmail = 'info@innovatorsgeneration.com';
   static const _privacyPolicyUrl = AiDataSharingConsent.privacyPolicyUrl;
   static const _privacyDeleteUrl = 'https://docsoncalls.com/delete.html';
 
@@ -94,7 +94,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Could not delete on server. Email zub165@yahoo.com to request deletion.',
+              'Could not delete on server. Email $_deleteSupportEmail to request deletion.',
             ),
           ),
         );
@@ -108,7 +108,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Delete failed. Try again or email zub165@yahoo.com.'),
+          content: Text(
+            'Delete failed. Try again or email $_deleteSupportEmail.',
+          ),
         ),
       );
     } finally {

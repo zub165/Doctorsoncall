@@ -30,6 +30,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   late final EmrFeaturesApi _api;
   Future<dynamic>? _appointmentsFuture;
   DateTime _selectedDate = DateTime.now();
+  DateTime _focusedMonth = DateTime(DateTime.now().year, DateTime.now().month);
   VoidCallback? _focusListener;
 
   /// Only patients use in-app booking; staff use the list for assigned bookings.
@@ -134,8 +135,47 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       });
   }
 
+  static bool _isReasonableDateKey(String key) {
+    if (key.length != 10) return false;
+    final y = int.tryParse(key.substring(0, 4));
+    if (y == null || y < 2020 || y > 2032) return false;
+    return true;
+  }
+
   Set<String> _datesWithBookings(List<Map<String, dynamic>> appointments) {
-    return appointments.map((a) => _dateKey(a['date'])).where((k) => k.length == 10).toSet();
+    return appointments
+        .map((a) => _dateKey(a['date']))
+        .where(_isReasonableDateKey)
+        .toSet();
+  }
+
+  static DateTime? _parseDateKey(String key) {
+    if (!_isReasonableDateKey(key)) return null;
+    final p = key.split('-');
+    return DateTime(int.parse(p[0]), int.parse(p[1]), int.parse(p[2]));
+  }
+
+  static String _formatFriendlyDate(DateTime d) {
+    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${weekdays[d.weekday - 1]}, ${months[d.month - 1]} ${d.day}, ${d.year}';
+  }
+
+  static String _toDateKey(DateTime d) {
+    return '${d.year.toString().padLeft(4, '0')}-'
+        '${d.month.toString().padLeft(2, '0')}-'
+        '${d.day.toString().padLeft(2, '0')}';
+  }
+
+  List<String> _upcomingDateKeys(List<Map<String, dynamic>> appointments) {
+    final today = _toDateKey(DateTime.now());
+    return _datesWithBookings(appointments)
+        .where((k) => k.compareTo(today) >= 0)
+        .toList()
+      ..sort();
   }
 
   @override
@@ -191,126 +231,149 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           final dayAppointments =
               appointments.where((a) => _dateKey(a['date']) == selectedKey).toList();
 
-          final otherDates = _datesWithBookings(appointments)
+          final bookingDates = _datesWithBookings(appointments);
+          final upcomingKeys = _upcomingDateKeys(appointments);
+          final nextKeys = upcomingKeys
               .where((k) => k != selectedKey)
-              .toList()
-            ..sort();
+              .take(4)
+              .toList();
+
+          final upcomingList = appointments.where((a) {
+            final k = _dateKey(a['date']);
+            return _isReasonableDateKey(k) && k.compareTo(_toDateKey(DateTime.now())) >= 0;
+          }).toList();
 
           return ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(16),
             children: [
-              Card(
-                color: AppColors.primary.withValues(alpha: 0.06),
-                child: ListTile(
-                  leading: const Icon(Icons.event_available_rounded, color: AppColors.primary),
-                  title: Text(
-                    '${appointments.length} appointment${appointments.length == 1 ? '' : 's'} from database',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  subtitle: Text(
-                    dayAppointments.isEmpty
-                        ? 'None on $selectedKey · pick another date below'
-                        : '${dayAppointments.length} on selected day',
-                  ),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.refresh_rounded),
-                    onPressed: _loadAppointments,
-                  ),
-                ),
+              _SummaryHeader(
+                totalCount: appointments.length,
+                selectedDate: _selectedDate,
+                dayCount: dayAppointments.length,
+                onRefresh: _loadAppointments,
+                onToday: () {
+                  final now = DateTime.now();
+                  setState(() {
+                    _selectedDate = now;
+                    _focusedMonth = DateTime(now.year, now.month);
+                  });
+                },
+                onBook: _isPatientUser ? () => widget.onNavigateToTab?.call(8) : null,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               Card(
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(color: Colors.grey.shade200),
+                ),
                 child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: CalendarDatePicker(
-                    initialDate: _selectedDate,
-                    firstDate: DateTime(DateTime.now().year - 1),
-                    lastDate: DateTime(DateTime.now().year + 3),
-                    onDateChanged: (v) => setState(() => _selectedDate = v),
+                  padding: const EdgeInsets.fromLTRB(8, 12, 8, 12),
+                  child: _AppointmentMonthCalendar(
+                    focusedMonth: _focusedMonth,
+                    selectedDate: _selectedDate,
+                    bookingDateKeys: bookingDates,
+                    onMonthChanged: (m) => setState(() => _focusedMonth = m),
+                    onDateSelected: (d) => setState(() => _selectedDate = d),
                   ),
                 ),
               ),
-              if (otherDates.isNotEmpty && dayAppointments.isEmpty) ...[
+              if (nextKeys.isNotEmpty && dayAppointments.isEmpty) ...[
                 const SizedBox(height: 12),
                 Text(
-                  'Dates with bookings',
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                  'Jump to next booking',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
                 ),
                 const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final dateKey in otherDates.take(8))
-                      ActionChip(
-                        label: Text(dateKey),
-                        onPressed: () {
-                          final parts = dateKey.split('-');
-                          if (parts.length == 3) {
-                            setState(() {
-                              _selectedDate = DateTime(
-                                int.parse(parts[0]),
-                                int.parse(parts[1]),
-                                int.parse(parts[2]),
-                              );
-                            });
-                          }
-                        },
-                      ),
-                  ],
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final key in nextKeys)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ActionChip(
+                            avatar: const Icon(Icons.event, size: 18, color: AppColors.primary),
+                            label: Text(_formatFriendlyDate(_parseDateKey(key)!)),
+                            onPressed: () {
+                              final d = _parseDateKey(key);
+                              if (d == null) return;
+                              setState(() {
+                                _selectedDate = d;
+                                _focusedMonth = DateTime(d.year, d.month);
+                              });
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ],
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               Row(
                 children: [
                   Expanded(
-                    child: Text(
-                      'Bookings on $selectedKey',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          dayAppointments.isEmpty
+                              ? 'No visits this day'
+                              : '${dayAppointments.length} visit${dayAppointments.length == 1 ? '' : 's'}',
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
+                        ),
+                        Text(
+                          _formatFriendlyDate(_selectedDate),
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Colors.grey.shade700,
+                              ),
+                        ),
+                      ],
                     ),
                   ),
                   if (_isPatientUser)
-                    TextButton.icon(
+                    FilledButton.icon(
                       onPressed: () => widget.onNavigateToTab?.call(8),
-                      icon: const Icon(Icons.add),
+                      icon: const Icon(Icons.add, size: 20),
                       label: const Text('Book'),
                     ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               if (appointments.isEmpty)
                 _buildEmptyState()
+              else if (dayAppointments.isNotEmpty)
+                ...dayAppointments.map(
+                  (a) => _buildAppointmentCard(a, showPatient: showPatient),
+                )
               else ...[
-                if (dayAppointments.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Text(
-                      'No appointments on this day. Showing all upcoming below.',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Colors.grey.shade700,
-                          ),
-                    ),
-                  ),
-                if (dayAppointments.isNotEmpty)
-                  ...dayAppointments.map(
-                    (a) => _buildAppointmentCard(a, showPatient: showPatient),
-                  )
-                else ...[
-                  const SizedBox(height: 8),
+                if (upcomingList.isNotEmpty) ...[
                   Text(
-                    'All upcoming',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    'Upcoming visits',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
                           fontWeight: FontWeight.w700,
+                          color: Colors.grey.shade800,
                         ),
                   ),
                   const SizedBox(height: 8),
-                  ...appointments.take(25).map(
+                  ...upcomingList.take(8).map(
                         (a) => _buildAppointmentCard(a, showPatient: showPatient),
                       ),
-                ],
+                ] else
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    child: Center(
+                      child: Text(
+                        'Select a highlighted date on the calendar.',
+                        style: TextStyle(color: Colors.grey.shade600),
+                      ),
+                    ),
+                  ),
               ],
             ],
           );
@@ -594,6 +657,289 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _SummaryHeader extends StatelessWidget {
+  const _SummaryHeader({
+    required this.totalCount,
+    required this.selectedDate,
+    required this.dayCount,
+    required this.onRefresh,
+    required this.onToday,
+    this.onBook,
+  });
+
+  final int totalCount;
+  final DateTime selectedDate;
+  final int dayCount;
+  final VoidCallback onRefresh;
+  final VoidCallback onToday;
+  final VoidCallback? onBook;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AppColors.primary.withValues(alpha: 0.12),
+            AppColors.primary.withValues(alpha: 0.04),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.15)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(Icons.event_available_rounded, color: AppColors.primary),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$totalCount total · $dayCount on selected day',
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _AppointmentsScreenState._formatFriendlyDate(selectedDate),
+                  style: TextStyle(color: Colors.grey.shade800, fontSize: 13),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Dots on the calendar = days with visits',
+                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          Column(
+            children: [
+              IconButton(
+                tooltip: 'Today',
+                onPressed: onToday,
+                icon: const Icon(Icons.today_outlined),
+              ),
+              IconButton(
+                tooltip: 'Refresh',
+                onPressed: onRefresh,
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+              if (onBook != null)
+                IconButton(
+                  tooltip: 'Book visit',
+                  onPressed: onBook,
+                  icon: const Icon(Icons.add_circle_outline),
+                  color: AppColors.primary,
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Month grid with dots on days that have appointments.
+class _AppointmentMonthCalendar extends StatelessWidget {
+  const _AppointmentMonthCalendar({
+    required this.focusedMonth,
+    required this.selectedDate,
+    required this.bookingDateKeys,
+    required this.onMonthChanged,
+    required this.onDateSelected,
+  });
+
+  final DateTime focusedMonth;
+  final DateTime selectedDate;
+  final Set<String> bookingDateKeys;
+  final ValueChanged<DateTime> onMonthChanged;
+  final ValueChanged<DateTime> onDateSelected;
+
+  static const _weekdays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  static const _months = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final year = focusedMonth.year;
+    final month = focusedMonth.month;
+    final daysInMonth = DateUtils.getDaysInMonth(year, month);
+    final firstWeekday = DateTime(year, month, 1).weekday % 7;
+    final todayKey = _AppointmentsScreenState._toDateKey(DateTime.now());
+    final selectedKey = _AppointmentsScreenState._toDateKey(selectedDate);
+
+    return Column(
+      children: [
+        Row(
+          children: [
+            IconButton(
+              icon: const Icon(Icons.chevron_left),
+              onPressed: () {
+                final prev = DateTime(year, month - 1);
+                onMonthChanged(prev);
+              },
+            ),
+            Expanded(
+              child: Text(
+                '${_months[month - 1]} $year',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.chevron_right),
+              onPressed: () {
+                final next = DateTime(year, month + 1);
+                onMonthChanged(next);
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: _weekdays
+              .map(
+                (w) => Expanded(
+                  child: Center(
+                    child: Text(
+                      w,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ),
+                ),
+              )
+              .toList(),
+        ),
+        const SizedBox(height: 6),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 7,
+            mainAxisSpacing: 4,
+            crossAxisSpacing: 4,
+          ),
+          itemCount: firstWeekday + daysInMonth,
+          itemBuilder: (context, index) {
+            if (index < firstWeekday) return const SizedBox.shrink();
+            final day = index - firstWeekday + 1;
+            final date = DateTime(year, month, day);
+            final key = _AppointmentsScreenState._toDateKey(date);
+            final hasBooking = bookingDateKeys.contains(key);
+            final isSelected = key == selectedKey;
+            final isToday = key == todayKey;
+
+            return Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: () => onDateSelected(date),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? AppColors.primary
+                        : isToday
+                            ? AppColors.primary.withValues(alpha: 0.08)
+                            : null,
+                    borderRadius: BorderRadius.circular(10),
+                    border: isToday && !isSelected
+                        ? Border.all(color: AppColors.primary.withValues(alpha: 0.5))
+                        : null,
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        '$day',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                          color: isSelected ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: hasBooking
+                              ? (isSelected ? Colors.white : AppColors.primary)
+                              : Colors.transparent,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            _LegendDot(color: AppColors.primary, label: 'Has visit'),
+            const SizedBox(width: 16),
+            _LegendDot(
+              color: AppColors.primary.withValues(alpha: 0.15),
+              label: 'Today',
+              outlined: true,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _LegendDot extends StatelessWidget {
+  const _LegendDot({
+    required this.color,
+    required this.label,
+    this.outlined = false,
+  });
+
+  final Color color;
+  final String label;
+  final bool outlined;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: outlined ? Colors.transparent : color,
+            border: outlined ? Border.all(color: AppColors.primary) : null,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(label, style: TextStyle(fontSize: 11, color: Colors.grey.shade700)),
+      ],
     );
   }
 }

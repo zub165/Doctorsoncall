@@ -1704,7 +1704,7 @@ class _RecordTile extends StatelessWidget {
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        r.aiHighlight!,
+                        MedicalRecordsApi.soapSectionText(r.aiHighlight),
                         maxLines: 4,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.bodySmall?.copyWith(

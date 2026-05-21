@@ -10,7 +10,7 @@ export function Hospitals() {
     error: '',
   });
   const [q, setQ] = React.useState('');
-  const [kind, setKind] = React.useState('all'); // all | er | urgent
+  const [kind, setKind] = React.useState('er'); // er | urgent | hospital | clinic
   const [wait, setWait] = React.useState({ loading: false, error: '', byId: {} });
   const [geo, setGeo] = React.useState({ status: 'idle', error: '', lat: null, lon: null }); // idle | requesting | ok | denied | error
 
@@ -20,15 +20,25 @@ export function Hospitals() {
     try {
       let data;
 
-      // Prefer nearby search when we have coordinates.
+      const params = { lat, lon, radius_m: 25000, limit: 50 };
+      if (kind === 'er') params.type = 'emergency';
+      else if (kind === 'urgent') params.type = 'urgent_care';
+      else if (kind === 'hospital') params.type = 'general';
+      else if (kind === 'clinic') params.type = 'clinic';
+
+      // Prefer nearby search when we have coordinates (EMR proxy → Finder, then direct Maps).
       if (Number.isFinite(Number(lat)) && Number.isFinite(Number(lon))) {
         try {
-          const res = await emrApi.get(ApiPaths.hospitalsSearch, { params: { lat, lon } });
+          const res = await emrApi.get(ApiPaths.hospitalsSearch, { params });
           data = res.data;
         } catch (e) {
-          // Some deployments don't support geo search yet (or error). Fallback to list.
-          const res2 = await emrApi.get(ApiPaths.hospitals);
-          data = res2.data;
+          try {
+            const res2 = await mapsApi.get(ApiPaths.hospitalsSearch, { params });
+            data = res2.data;
+          } catch (e2) {
+            const res3 = await emrApi.get(ApiPaths.hospitals);
+            data = res3.data;
+          }
         }
       } else {
         try {
@@ -36,7 +46,6 @@ export function Hospitals() {
           data = res.data;
         } catch (e) {
           const code = Number(e?.response?.status);
-          // Some deployments require auth on Maps API. Fallback to EMR hospitals list.
           if (code === 401 || code === 403) {
             const res2 = await emrApi.get(ApiPaths.hospitals);
             data = res2.data;
@@ -96,6 +105,12 @@ export function Hospitals() {
     };
   }, []);
 
+  React.useEffect(() => {
+    if (geo.status === 'ok' && geo.lat != null && geo.lon != null) {
+      loadHospitals({ lat: geo.lat, lon: geo.lon });
+    }
+  }, [kind]);
+
   async function refreshWaitTime(hospitalId) {
     if (!hospitalId) return;
     setWait((s) => ({ ...s, loading: true, error: '' }));
@@ -129,10 +144,16 @@ export function Hospitals() {
         return s.includes(qq);
       })
       .filter((h) => {
-        if (kind === 'all') return true;
-        const t = (h?.type || h?.kind || '').toString().toLowerCase();
-        if (kind === 'er') return t.includes('emergency');
+        const t = `${h?.type || ''} ${h?.kind || ''} ${h?.facility_type || ''} ${h?.name || ''}`
+          .toString()
+          .toLowerCase();
+        if (kind === 'er') return t.includes('emergency') || t.includes(' er');
         if (kind === 'urgent') return t.includes('urgent');
+        if (kind === 'hospital') {
+          if (t.includes('pharmacy') || t.includes('walgreens') || t.includes('cvs')) return false;
+          return t.includes('hospital') && !t.includes('urgent');
+        }
+        if (kind === 'clinic') return t.includes('clinic') || t.includes('walk');
         return true;
       });
   }, [state.items, q, kind]);
@@ -264,9 +285,6 @@ export function Hospitals() {
           ) : null}
 
           <div className="dc-chip-row">
-            <button type="button" className="dc-chip" data-active={kind === 'all' ? 'true' : 'false'} onClick={() => setKind('all')}>
-              All
-            </button>
             <button type="button" className="dc-chip" data-active={kind === 'er' ? 'true' : 'false'} onClick={() => setKind('er')}>
               Emergency Room
             </button>
@@ -277,6 +295,22 @@ export function Hospitals() {
               onClick={() => setKind('urgent')}
             >
               Urgent Care
+            </button>
+            <button
+              type="button"
+              className="dc-chip"
+              data-active={kind === 'hospital' ? 'true' : 'false'}
+              onClick={() => setKind('hospital')}
+            >
+              Hospital
+            </button>
+            <button
+              type="button"
+              className="dc-chip"
+              data-active={kind === 'clinic' ? 'true' : 'false'}
+              onClick={() => setKind('clinic')}
+            >
+              Walk-in clinic
             </button>
           </div>
         </div>

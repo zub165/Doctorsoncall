@@ -64,6 +64,9 @@ class EmergencyApiClient {
 
   Dio get raw => _dio;
 
+  /// Resolved EMR base URL (always ends with `/api/`).
+  String get emrApiBaseUrl => _dio.options.baseUrl;
+
   /// Convenience constructor for maps / ER wait-time backend.
   factory EmergencyApiClient.maps({TokenRepository? tokenRepository}) =>
       EmergencyApiClient(

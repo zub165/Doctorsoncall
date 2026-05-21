@@ -1,9 +1,11 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
+import '../models/billing.dart';
 import '../services/emergency_api_client.dart';
 import '../services/emr_features_api.dart';
 import '../widgets/api_access_placeholder.dart';
+import 'patient_billing_screen.dart';
 
 class BookAppointmentScreen extends StatefulWidget {
   const BookAppointmentScreen({
@@ -137,7 +139,7 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
     try {
       final dateStr = _formatYmd(_selectedDate!);
       final timeStr = '${_selectedTime!.hour.toString().padLeft(2, '0')}:${_selectedTime!.minute.toString().padLeft(2, '0')}';
-      await EmrFeaturesApi(widget.apiClient).storeAppointment(
+      final booked = await EmrFeaturesApi(widget.apiClient).bookAppointment(
         providerId: pid,
         date: dateStr,
         time: timeStr,
@@ -152,6 +154,13 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
           content: Text('Booked: ${_selectedProviderLabel ?? 'Provider #$pid'}'),
           backgroundColor: const Color(0xFF4CAF50),
         ),
+      );
+      await _showBookingBillingDialog(
+        context,
+        hint: booked.billingHint,
+        providerLabel: _selectedProviderLabel ?? 'Provider #$pid',
+        dateLabel: _formatDate(_selectedDate!),
+        timeLabel: _formatTime(_selectedTime!),
       );
       widget.onBooked?.call();
       setState(() {
@@ -483,6 +492,65 @@ class _BookAppointmentScreenState extends State<BookAppointmentScreen> {
           ),
         ],
       ],
+    );
+  }
+
+  Future<void> _showBookingBillingDialog(
+    BuildContext context, {
+    required BillingHint? hint,
+    required String providerLabel,
+    required String dateLabel,
+    required String timeLabel,
+  }) async {
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.check_circle, color: Color(0xFF4CAF50)),
+            SizedBox(width: 8),
+            Text('Appointment booked'),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                '$providerLabel\n$dateLabel · $timeLabel',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 12),
+              if (hint != null)
+                BillingHintCard(hint: hint)
+              else
+                const Text(
+                  'Your visit is scheduled. Billing details were not returned by the server.',
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          if (hint != null && !hint.coveredVisitAvailable)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) =>
+                        PatientBillingScreen(apiClient: widget.apiClient),
+                  ),
+                );
+              },
+              child: const Text('My bills'),
+            ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Done'),
+          ),
+        ],
+      ),
     );
   }
 

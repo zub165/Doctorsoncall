@@ -35,16 +35,48 @@ class ApiPaths {
   static const hospitals = 'hospitals/';
 
   /// Search / nearby — query params as your backend expects (e.g. lat, lon, radius).
-  static String hospitalsSearch({required double lat, required double lon}) =>
-      'hospitals/search/?lat=$lat&lon=$lon';
+  static String hospitalsSearch({
+    required double lat,
+    required double lon,
+    int radiusM = 25000,
+    int limit = 50,
+    String type = 'all',
+  }) =>
+      'hospitals/search/?lat=$lat&lon=$lon&radius_m=$radiusM&limit=$limit&type=$type';
+
+  /// Alias of search (MyWaitime / EMR proxy).
+  static String hospitalsNearby({
+    required double lat,
+    required double lon,
+    int radiusM = 25000,
+    int limit = 50,
+  }) =>
+      'hospitals/nearby/?lat=$lat&lon=$lon&radius_m=$radiusM&limit=$limit';
 
   static String hospitalDetail(String uuid) => 'hospitals/$uuid/';
 
-  /// Example AI wait feature: `GET …/api/hospitals/<uuid>/ai-wait-time/`
+  /// `GET …/api/hospitals/<uuid>/smart-wait-time/`
+  static String hospitalSmartWaitTime(
+    String uuid, {
+    double? userLat,
+    double? userLon,
+  }) {
+    var path = 'hospitals/$uuid/smart-wait-time/';
+    if (userLat != null && userLon != null) {
+      path += '?user_lat=$userLat&user_lon=$userLon';
+    }
+    return path;
+  }
+
+  /// `POST …/api/hospitals/smart-wait-time/batch/` — max 30 UUIDs.
+  static const hospitalsSmartWaitTimeBatch = 'hospitals/smart-wait-time/batch/';
+
+  /// Legacy EMR catalog AI wait (integer hospital pk only).
   static String hospitalAiWaitTime(String uuid) =>
       'hospitals/$uuid/ai-wait-time/';
 
   static const feedbackSubmit = 'feedback/submit/';
+  static const feedbackContext = 'feedback/context/';
 
   // --- OSM / courses (when wired) ---
   static String osmSearchHospitals({
@@ -52,6 +84,20 @@ class ApiPaths {
     required double lon,
   }) => 'osm/search-hospitals/?lat=$lat&lon=$lon';
   static const osmSystemStatus = 'osm/system-status/';
+
+  // TomTom via nginx → Django (key on server)
+  static const mapConfig = 'map-config/';
+  static const tomtomStatus = 'tomtom/status/';
+  static String tomtomTile(int z, int x, int y) =>
+      'tomtom/tiles/$z/$x/$y.png';
+  /// TomTom Nearby Search backup (EMR proxy; key on server).
+  static String tomtomSearchHospitals({
+    required double lat,
+    required double lon,
+    int radiusM = 25000,
+    int limit = 40,
+  }) =>
+      'tomtom/search-hospitals/?lat=$lat&lon=$lon&radius_m=$radiusM&limit=$limit';
   static const coursesV1 = 'v1/courses/';
 
   // --- Full list + EMR extras (see FRONTEND_API_DOCUMENTATION.md §13) ---
@@ -111,9 +157,14 @@ class ApiPaths {
   // --- Billing ---
   static const billingStatus = 'billing/status/';
   static const billingCheckout = 'billing/checkout/';
+  static const billingVerifyStore = 'billing/verify-store/';
+  static const billingAdminSummary = 'billing/admin/summary/';
+  static const doctorStripeConnect = 'billing/doctor/stripe-connect/';
+  static const doctorStripeConnectStatus = 'billing/doctor/stripe-connect/status/';
   static const doctorBillingSummary = 'billing/doctor/summary/';
   static const doctorTransactions = 'billing/doctor/transactions/';
   static const doctorCreateInvoice = 'billing/doctor/create-invoice/';
+  static const doctorComplimentaryVisit = 'billing/doctor/complimentary-visit/';
   static const doctorRequestPayout = 'billing/doctor/request-payout/';
   static const patientBills = 'billing/patient/bills/';
   static const patientPayBill = 'billing/patient/pay-bill/';

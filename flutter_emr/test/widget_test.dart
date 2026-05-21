@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:emergency_time/main.dart';
+import 'package:doctersoncall/main.dart';
 
 void main() {
   testWidgets('App loads with Doctor On Call branding', (WidgetTester tester) async {

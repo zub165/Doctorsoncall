@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 
 import '../config/api_paths.dart';
+import '../models/billing.dart';
 import 'emergency_api_client.dart';
 
 /// EMR features: appointments, providers, countries, feedback, Ollama status — paths follow [ApiPaths].
@@ -147,9 +148,12 @@ class EmrFeaturesApi {
   }
 
   /// [fixture] — when true, calls `GET …/plans/?fixture=1` so Django can seed demo rows when allowed.
-  Future<dynamic> plans({bool fixture = false}) async {
-    final path =
-        fixture ? '${ApiPaths.plans}?fixture=1' : ApiPaths.plans;
+  /// [all] — admin only: `GET …/plans/?all=1` includes test/legacy rows without store product ids.
+  Future<dynamic> plans({bool fixture = false, bool all = false}) async {
+    final q = <String>[];
+    if (fixture) q.add('fixture=1');
+    if (all) q.add('all=1');
+    final path = q.isEmpty ? ApiPaths.plans : '${ApiPaths.plans}?${q.join('&')}';
     final r = await _c.raw.get<dynamic>(path);
     return r.data;
   }
@@ -195,6 +199,24 @@ class EmrFeaturesApi {
       options: Options(contentType: Headers.jsonContentType),
     );
     return r.data;
+  }
+
+  /// `POST /api/appointments/` — includes [AppointmentBookResult.billingHint].
+  Future<AppointmentBookResult> bookAppointment({
+    required int providerId,
+    required String date,
+    required String time,
+  }) async {
+    final r = await _c.raw.post<dynamic>(
+      ApiPaths.storeAppointment,
+      data: {
+        'provider_id': providerId,
+        'date': date,
+        'time': time,
+      },
+      options: Options(contentType: Headers.jsonContentType),
+    );
+    return AppointmentBookResult.fromResponse(r.data);
   }
 
   Future<dynamic> providers() async {
@@ -289,10 +311,48 @@ class EmrFeaturesApi {
     return 0;
   }
 
+  Future<Map<String, dynamic>> fetchFeedbackContext() async {
+    final r = await _c.raw.get<dynamic>(ApiPaths.feedbackContext);
+    final data = r.data;
+    if (data is Map && data['data'] is Map) {
+      return Map<String, dynamic>.from(data['data'] as Map);
+    }
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return {};
+  }
+
   Future<void> submitFeedback(String text) async {
+    await submitVisitFeedback(feedback: text);
+  }
+
+  /// Visit-linked star ratings for patient ↔ doctor (see `feedback/context/`).
+  Future<void> submitVisitFeedback({
+    required String feedback,
+    String? subjectType,
+    int? providerId,
+    int? patientId,
+    int? appointmentId,
+    int? overallRating,
+    int? ratingCommunication,
+    int? ratingCareQuality,
+    int? ratingEase,
+    int? ratingRecommend,
+  }) async {
+    final body = <String, dynamic>{
+      'feedback': feedback,
+      if (subjectType != null && subjectType.isNotEmpty) 'subject_type': subjectType,
+      if (providerId != null) 'provider_id': providerId,
+      if (patientId != null) 'patient_id': patientId,
+      if (appointmentId != null) 'appointment_id': appointmentId,
+      if (overallRating != null) 'overall_rating': overallRating,
+      if (ratingCommunication != null) 'rating_communication': ratingCommunication,
+      if (ratingCareQuality != null) 'rating_care_quality': ratingCareQuality,
+      if (ratingEase != null) 'rating_ease': ratingEase,
+      if (ratingRecommend != null) 'rating_recommend': ratingRecommend,
+    };
     await _c.raw.post<dynamic>(
       ApiPaths.feedback,
-      data: {'feedback': text},
+      data: body,
       options: Options(contentType: Headers.jsonContentType),
     );
   }
@@ -315,12 +375,51 @@ class EmrFeaturesApi {
     return r.data;
   }
 
+  /// `GET /api/billing/status/` — active sub + [VisitAllowance].
+  Future<BillingStatusSnapshot> fetchBillingStatus() async {
+    final r = await _c.raw.get<dynamic>(ApiPaths.billingStatus);
+    return BillingStatusSnapshot.fromResponse(r.data);
+  }
+
   Future<dynamic> billingCheckout(int planId, {String platform = 'web'}) async {
     final r = await _c.raw.post<dynamic>(
       ApiPaths.billingCheckout,
       data: {'plan_id': planId, 'platform': platform},
       options: Options(contentType: Headers.jsonContentType),
     );
+    return r.data;
+  }
+
+  /// `POST /api/billing/verify-store/` — after App Store / Play purchase (no RevenueCat).
+  Future<dynamic> billingVerifyStore({
+    required int planId,
+    required String platform,
+    required String productId,
+    required String purchaseId,
+    required String verificationData,
+    String localVerificationData = '',
+    String? transactionDate,
+  }) async {
+    final r = await _c.raw.post<dynamic>(
+      ApiPaths.billingVerifyStore,
+      data: {
+        'plan_id': planId,
+        'platform': platform,
+        'product_id': productId,
+        'purchase_id': purchaseId,
+        'verification_data': verificationData,
+        if (localVerificationData.isNotEmpty)
+          'local_verification_data': localVerificationData,
+        if (transactionDate != null && transactionDate.isNotEmpty)
+          'transaction_date': transactionDate,
+      },
+      options: Options(contentType: Headers.jsonContentType),
+    );
+    return r.data;
+  }
+
+  Future<dynamic> adminBillingSummary() async {
+    final r = await _c.raw.get<dynamic>(ApiPaths.billingAdminSummary);
     return r.data;
   }
 
@@ -336,19 +435,40 @@ class EmrFeaturesApi {
     return r.data;
   }
 
-  Future<dynamic> doctorCreateInvoice({
+  Future<dynamic> doctorComplimentaryVisit({
     required int patientId,
-    required double amount,
     String notes = '',
     int? appointmentId,
+  }) async {
+    final r = await _c.raw.post<dynamic>(
+      ApiPaths.doctorComplimentaryVisit,
+      data: {
+        'patient_id': patientId,
+        'notes': notes,
+        if (appointmentId != null) 'appointment_id': appointmentId,
+      },
+      options: Options(contentType: Headers.jsonContentType),
+    );
+    return r.data;
+  }
+
+  Future<dynamic> doctorCreateInvoice({
+    required int patientId,
+    double? amount,
+    String notes = '',
+    int? appointmentId,
+    bool complimentary = false,
+    bool useDefaultFee = false,
   }) async {
     final r = await _c.raw.post<dynamic>(
       ApiPaths.doctorCreateInvoice,
       data: {
         'patient_id': patientId,
-        'amount': amount,
+        if (amount != null) 'amount': amount,
         'notes': notes,
         if (appointmentId != null) 'appointment_id': appointmentId,
+        if (complimentary) 'complimentary': true,
+        if (useDefaultFee) 'use_default_fee': true,
       },
       options: Options(contentType: Headers.jsonContentType),
     );
@@ -361,6 +481,19 @@ class EmrFeaturesApi {
       data: {'amount': amount},
       options: Options(contentType: Headers.jsonContentType),
     );
+    return r.data;
+  }
+
+  Future<dynamic> doctorStripeConnectOnboard() async {
+    final r = await _c.raw.post<dynamic>(
+      ApiPaths.doctorStripeConnect,
+      options: Options(contentType: Headers.jsonContentType),
+    );
+    return r.data;
+  }
+
+  Future<dynamic> doctorStripeConnectStatus() async {
+    final r = await _c.raw.get<dynamic>(ApiPaths.doctorStripeConnectStatus);
     return r.data;
   }
 
@@ -398,6 +531,7 @@ class EmrFeaturesApi {
     String? licenseNumber,
     String? qualifications,
     String? bio,
+    bool volunteerOnlineVisits = false,
   }) async {
     final r = await _c.raw.post<dynamic>(
       ApiPaths.providersApply,
@@ -410,6 +544,7 @@ class EmrFeaturesApi {
         'license_number': (licenseNumber ?? '').trim(),
         'qualifications': (qualifications ?? '').trim(),
         'bio': (bio ?? '').trim(),
+        'volunteer_online_visits': volunteerOnlineVisits,
       },
       options: Options(contentType: Headers.jsonContentType),
     );

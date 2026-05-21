@@ -12,6 +12,11 @@ class PatientBillingScreen extends StatefulWidget {
   State<PatientBillingScreen> createState() => _PatientBillingScreenState();
 }
 
+String _formatMoney(dynamic amount) {
+  if (amount is num) return amount.toStringAsFixed(2);
+  return double.tryParse(amount?.toString() ?? '')?.toStringAsFixed(2) ?? '0.00';
+}
+
 class _PatientBillingScreenState extends State<PatientBillingScreen> {
   bool _loading = true;
   String? _error;
@@ -62,8 +67,12 @@ class _PatientBillingScreenState extends State<PatientBillingScreen> {
       _load();
     } catch (e) {
       if (!mounted) return;
+      final msg = e.toString();
+      final friendly = msg.contains('501')
+          ? 'Stripe is not configured on the server yet.'
+          : 'Payment failed: $msg';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
+        SnackBar(content: Text(friendly)),
       );
     }
   }
@@ -151,7 +160,7 @@ class _PatientBillingScreenState extends State<PatientBillingScreen> {
                                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
                                       Text(
-                                        'Amount: \$${(bill['amount'] ?? 0).toStringAsFixed(2)}',
+                                        'Amount: \$${_formatMoney(bill['amount'])}',
                                         style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                                       ),
                                       if (bill['created_at'] != null)
@@ -170,7 +179,13 @@ class _PatientBillingScreenState extends State<PatientBillingScreen> {
                                     SizedBox(
                                       width: double.infinity,
                                       child: FilledButton.icon(
-                                        onPressed: () => _payBill(bill['id'] as int),
+                                        onPressed: () {
+                                          final id = bill['id'];
+                                          final txId = id is int
+                                              ? id
+                                              : int.tryParse(id?.toString() ?? '');
+                                          if (txId != null) _payBill(txId);
+                                        },
                                         icon: const Icon(Icons.lock_outline),
                                         label: const Text('Pay Now'),
                                       ),

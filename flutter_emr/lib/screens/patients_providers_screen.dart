@@ -163,19 +163,19 @@ class _PatientsProvidersScreenState extends State<PatientsProvidersScreen>
               ];
 
     return Column(
-      children: [
-        Container(
-          color: const Color(0xFFD32F2F),
+        children: [
+          Container(
+            color: const Color(0xFFD32F2F),
           child: TabBar(
             controller: _tabController,
-            labelColor: Colors.white,
-            unselectedLabelColor: Colors.white70,
-            indicatorColor: Colors.white,
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.white70,
+              indicatorColor: Colors.white,
             isScrollable: tabs.length > 3,
             tabs: tabs,
           ),
-        ),
-        Expanded(
+          ),
+          Expanded(
           child: FutureBuilder<_HubData>(
             future: _hubF,
             builder: (context, snap) {
@@ -202,9 +202,9 @@ class _PatientsProvidersScreenState extends State<PatientsProvidersScreen>
 
               final hub = snap.data ?? _HubData.empty();
               return RefreshIndicator(
-                color: AppColors.primary,
+              color: AppColors.primary,
                 onRefresh: () async => _reload(),
-                child: TabBarView(
+              child: TabBarView(
                   controller: _tabController,
                   children: _isAdmin
                       ? [
@@ -221,7 +221,7 @@ class _PatientsProvidersScreenState extends State<PatientsProvidersScreen>
                           _ProvidersList(
                             providers: _filter(hub.providers, ['full_name', 'email', 'speciality_name']),
                             canEdit: true,
-                            api: _api,
+                    api: _api,
                             onReload: _reload,
                             search: _search,
                             subtitle: '${hub.providers.length} physicians',
@@ -237,7 +237,7 @@ class _PatientsProvidersScreenState extends State<PatientsProvidersScreen>
                               _PatientsList(
                                 patients: _filter(hub.patients, ['name', 'email']),
                                 canEdit: false,
-                                api: _api,
+                    api: _api,
                                 apiClient: widget.apiClient,
                                 openServerChart: true,
                                 onReload: _reload,
@@ -266,9 +266,9 @@ class _PatientsProvidersScreenState extends State<PatientsProvidersScreen>
                                 appointments: hub.appointments,
                                 search: _search,
                                 isPatientView: true,
-                              ),
-                            ],
-                ),
+          ),
+        ],
+      ),
               );
             },
           ),
@@ -385,31 +385,31 @@ class _PatientsList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (patients.isEmpty) {
-      return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
+          return ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
-        children: [
+            children: [
           _SearchHeader(controller: search, hint: 'Search patients…', subtitle: subtitle),
           const SizedBox(height: 40),
           const Center(child: Text('No patients yet')),
-        ],
-      );
-    }
+            ],
+          );
+        }
 
-    return ListView.builder(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(16),
+        return ListView.builder(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
       itemCount: patients.length + 1,
-      itemBuilder: (context, i) {
+          itemBuilder: (context, i) {
         if (i == 0) {
           return _SearchHeader(controller: search, hint: 'Search patients…', subtitle: subtitle);
         }
         final m = patients[i - 1];
-        final name = (m['name'] ?? m['full_name'] ?? 'Patient').toString();
-        final email = (m['email'] ?? '').toString();
-        return Card(
-          margin: const EdgeInsets.only(bottom: 10),
-          child: ListTile(
+            final name = (m['name'] ?? m['full_name'] ?? 'Patient').toString();
+            final email = (m['email'] ?? '').toString();
+            return Card(
+              margin: const EdgeInsets.only(bottom: 10),
+              child: ListTile(
             leading: PersonAvatar(
               name: name,
               imageUrl: (m['image'] ?? '').toString(),
@@ -589,10 +589,10 @@ class _ScheduleList extends StatelessWidget {
     }).toList();
 
     if (rows.isEmpty) {
-      return ListView(
-        physics: const AlwaysScrollableScrollPhysics(),
+          return ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
-        children: [
+            children: [
           _SearchHeader(
             controller: search,
             hint: 'Search schedule…',
@@ -600,15 +600,15 @@ class _ScheduleList extends StatelessWidget {
           ),
           const SizedBox(height: 40),
           const Center(child: Text('No visits scheduled yet')),
-        ],
-      );
-    }
+            ],
+          );
+        }
 
-    return ListView.builder(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(16),
+        return ListView.builder(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
       itemCount: rows.length + 1,
-      itemBuilder: (context, i) {
+          itemBuilder: (context, i) {
         if (i == 0) {
           return _SearchHeader(
             controller: search,
@@ -631,8 +631,8 @@ class _ScheduleList extends StatelessWidget {
             ? [if (spec.isNotEmpty) spec, '$date · $time'].join(' · ')
             : ['Patient: $patientName', '$date · $time'].join('\n');
 
-        return Card(
-          margin: const EdgeInsets.only(bottom: 10),
+            return Card(
+              margin: const EdgeInsets.only(bottom: 10),
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Row(
@@ -738,33 +738,33 @@ class _PatientServerChartScreenState extends State<PatientServerChartScreen> {
         onRefresh: _reload,
         child: FutureBuilder<_PatientChartData>(
           future: _future,
-          builder: (context, snap) {
+      builder: (context, snap) {
             if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
               return const Center(
                 child: CircularProgressIndicator(color: AppColors.primary),
               );
-            }
-            if (snap.hasError) {
-              final e = snap.error;
-              return ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                children: [
-                  SizedBox(height: MediaQuery.of(context).size.height * 0.12),
-                  ApiAccessPlaceholder(
+        }
+        if (snap.hasError) {
+          final e = snap.error;
+          return ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: [
+              SizedBox(height: MediaQuery.of(context).size.height * 0.12),
+              ApiAccessPlaceholder(
                     title: ApiAccessPlaceholder.isUnauthorized(e)
                         ? 'Sign in required'
                         : 'Could not load chart',
-                    message: ApiAccessPlaceholder.shortMessage(e),
+                message: ApiAccessPlaceholder.shortMessage(e),
                     requireSignIn: ApiAccessPlaceholder.isUnauthorized(e),
                     onRetry: _reload,
-                  ),
-                ],
-              );
-            }
+              ),
+            ],
+          );
+        }
             final data = snap.data!;
             return ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(16),
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16),
               children: [
                 Card(
                   color: Colors.blue.shade50,

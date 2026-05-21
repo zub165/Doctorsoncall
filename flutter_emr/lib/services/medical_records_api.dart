@@ -40,6 +40,74 @@ class MedicalRecordsApi {
     return rows;
   }
 
+  /// One-line / short preview for list cards (SOAP and AI summaries).
+  static String soapSectionText(dynamic value) {
+    if (value == null) return '';
+    if (value is Map) {
+      final m = Map<String, dynamic>.from(value);
+      final parts = <String>[];
+      final syms = m['symptoms'];
+      if (syms is List && syms.isNotEmpty) {
+        parts.add('Symptoms: ${syms.map((e) => e.toString()).join(', ')}');
+      } else if (syms != null && syms.toString().trim().isNotEmpty) {
+        parts.add('Symptoms: $syms');
+      }
+      final duration = m['duration'];
+      if (duration != null && duration.toString().trim().isNotEmpty) {
+        parts.add('Duration: $duration');
+      }
+      final history = m['history'];
+      if (history is List && history.isNotEmpty) {
+        parts.add('History: ${history.map((e) => e.toString()).join('; ')}');
+      } else if (history != null && history.toString().trim().isNotEmpty) {
+        parts.add('History: $history');
+      }
+      if (parts.isNotEmpty) return parts.join('\n');
+      return m.entries
+          .where((e) => e.value != null && e.value.toString().trim().isNotEmpty)
+          .map((e) => '${e.key}: ${e.value}')
+          .join('\n');
+    }
+    if (value is List) {
+      return value
+          .map((e) => e.toString())
+          .where((s) => s.trim().isNotEmpty)
+          .join('\n');
+    }
+    final text = value.toString().trim();
+    if (text.startsWith('{') && text.contains('symptoms')) {
+      final parsed = _tryParseLooseMap(text);
+      if (parsed != null) return soapSectionText(parsed);
+    }
+    return text;
+  }
+
+  static Map<String, dynamic>? _tryParseLooseMap(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {}
+    try {
+      final normalized = raw
+          .replaceAllMapped(
+            RegExp(r"'([^']*)'(\s*:)"),
+            (m) => '"${m[1]!.replaceAll('"', r'\"')}"${m[2]}',
+          )
+          .replaceAll("'", '"');
+      final decoded = jsonDecode(normalized);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {}
+    return null;
+  }
+
+  static String soapListPreview(Map<String, dynamic> soap) {
+    for (final key in ['subjective', 'assessment', 'plan', 'objective']) {
+      final line = soapSectionText(soap[key]);
+      if (line.isNotEmpty) return line;
+    }
+    return 'SOAP visit note';
+  }
+
   /// Parses Django `MedicalRecord` rows (`title`, `raw_payload`, `ai_summary`, …).
   static MedicalRecord fromServerRow(Map<String, dynamic> json) {
     final m = Map<String, dynamic>.from(json);
@@ -50,16 +118,23 @@ class MedicalRecordsApi {
         if (inner is Map) {
           final merged = Map<String, dynamic>.from(inner);
           merged['id'] ??= m['id'];
-          if ((m['ai_summary'] ?? '').toString().isNotEmpty) {
-            merged['ai_summary'] = m['ai_summary'];
-            merged['ai_highlight'] ??= m['ai_summary'];
-            merged['notes'] ??= m['ai_summary'];
-          }
           if ((m['title'] ?? '').toString().isNotEmpty) {
             merged['title'] ??= m['title'];
             merged['hospitalName'] ??= m['title'];
           }
           merged['created_at'] ??= m['created_at'];
+          if (merged['type']?.toString() == 'soap-v1') {
+            merged['record_type'] ??= 'soap-v1';
+            merged['ai_highlight'] = soapListPreview(merged);
+            merged['notes'] = merged['ai_highlight'];
+          } else {
+            final ai = (m['ai_summary'] ?? '').toString();
+            if (ai.isNotEmpty) {
+              merged['ai_summary'] = ai;
+              merged['ai_highlight'] = soapSectionText(ai);
+              merged['notes'] ??= merged['ai_highlight'];
+            }
+          }
           return MedicalRecord.fromJson(merged);
         }
       } catch (_) {
@@ -69,8 +144,8 @@ class MedicalRecordsApi {
     final merged = Map<String, dynamic>.from(m);
     final ai = (m['ai_summary'] ?? '').toString();
     if (ai.isNotEmpty) {
-      merged['ai_highlight'] = ai;
-      merged['notes'] = ai;
+      merged['ai_highlight'] = soapSectionText(ai);
+      merged['notes'] = merged['ai_highlight'];
     }
     merged['hospitalName'] = (m['title'] ?? 'Medical record').toString();
     merged['created_at'] ??= m['created_at'];

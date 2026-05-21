@@ -1,4 +1,4 @@
-package com.emergencytime.app.emergency_time
+package com.doctoroncall.emr
 
 import io.flutter.embedding.android.FlutterActivity
 

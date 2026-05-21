@@ -93,7 +93,7 @@ class _SessionGateState extends State<_SessionGate> {
 
   @override
   void dispose() {
-    _offlineDb?.close();
+    OfflineDb.closeShared();
     super.dispose();
   }
 

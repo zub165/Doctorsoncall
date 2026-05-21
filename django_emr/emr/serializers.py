@@ -15,13 +15,16 @@ from .models import (
     Patient,
     Plan,
     Provider,
-  Role,
+    ProviderPayout,
+    ProviderTransaction,
+    Role,
     Speciality,
     Timezone,
     PatientDocument,
     PatientShare,
     PatientSubscription,
     PatientVital,
+    VisitNote,
 )
 
 
@@ -83,6 +86,10 @@ class CountrySerializer(serializers.ModelSerializer):
 
 
 class SpecialitySerializer(serializers.ModelSerializer):
+    country_name = serializers.CharField(
+        source="country.country_name", read_only=True, default=""
+    )
+
     class Meta:
         model = Speciality
         fields = "__all__"
@@ -101,22 +108,68 @@ class RoleSerializer(serializers.ModelSerializer):
 
 
 class ProviderListSerializer(serializers.ModelSerializer):
+    user_is_staff = serializers.SerializerMethodField()
+    speciality_name = serializers.CharField(source="speciality.speciality_name", read_only=True)
+    speciality_image = serializers.CharField(source="speciality.speciality_image", read_only=True)
+    profile_image = serializers.CharField(source="profile_picture", read_only=True)
+    country_id = serializers.IntegerField(source="speciality.country_id", read_only=True)
+    country_name = serializers.CharField(
+        source="speciality.country.country_name", read_only=True, default=""
+    )
+
     class Meta:
         model = Provider
         fields = (
             "id",
+            "user_id",
             "full_name",
             "email",
             "speciality_id",
+            "speciality_name",
+            "speciality_image",
+            "profile_image",
+            "phone_number",
+            "whatsapp_number",
             "status",
             "consultation_fee",
+            "is_verified",
+            "user_is_staff",
+            "country_id",
+            "country_name",
         )
+
+    def get_user_is_staff(self, obj):
+        return bool(obj.user.is_staff) if obj.user_id else False
 
 
 class PatientSerializer(serializers.ModelSerializer):
+    user_is_staff = serializers.SerializerMethodField()
+    user_is_superuser = serializers.SerializerMethodField()
+
     class Meta:
         model = Patient
-        fields = "__all__"
+        fields = [
+            "id",
+            "user",
+            "image",
+            "name",
+            "date_of_birth",
+            "email",
+            "city",
+            "country",
+            "birth_place",
+            "identity_no",
+            "profile_status",
+            "whatsapp_number",
+            "user_is_staff",
+            "user_is_superuser",
+        ]
+
+    def get_user_is_staff(self, obj):
+        return bool(obj.user.is_staff) if obj.user_id else False
+
+    def get_user_is_superuser(self, obj):
+        return bool(obj.user.is_superuser) if obj.user_id else False
 
 
 class PatientSelfSerializer(serializers.ModelSerializer):
@@ -201,6 +254,7 @@ class ImportInboxSerializer(serializers.ModelSerializer):
 class AppointmentExpandedSerializer(serializers.ModelSerializer):
     provider = ProviderListSerializer(read_only=True)
     patient = PatientSerializer(read_only=True)
+    visit_notes = serializers.SerializerMethodField()
 
     class Meta:
         model = Appointment
@@ -216,13 +270,42 @@ class AppointmentExpandedSerializer(serializers.ModelSerializer):
             "patient",
             "provider_id",
             "patient_id",
+            "visit_notes",
         )
+
+    def get_visit_notes(self, obj):
+        qs = VisitNote.objects.filter(appointment=obj).select_related(
+            "provider", "patient"
+        )[:20]
+        return VisitNoteSerializer(qs, many=True).data
 
 
 class FeedbackSerializer(serializers.ModelSerializer):
+    provider_name = serializers.CharField(source="provider.full_name", read_only=True, default="")
+    patient_name = serializers.CharField(source="patient.name", read_only=True, default="")
+
     class Meta:
         model = Feedback
-        fields = ("id", "feedback", "user", "created_at")
+        fields = (
+            "id",
+            "feedback",
+            "user",
+            "created_at",
+            "reviewer_role",
+            "subject_type",
+            "provider",
+            "patient",
+            "appointment",
+            "overall_rating",
+            "rating_communication",
+            "rating_care_quality",
+            "rating_ease",
+            "rating_recommend",
+            "responses",
+            "provider_name",
+            "patient_name",
+        )
+        read_only_fields = ("id", "created_at", "provider_name", "patient_name")
 
 
 class NutritionEntrySerializer(serializers.ModelSerializer):
@@ -290,26 +373,6 @@ class PatientDocumentSerializer(serializers.ModelSerializer):
         )
 
 
-class PatientShareSerializer(serializers.ModelSerializer):
-    provider = ProviderListSerializer(read_only=True)
-    patient = PatientSerializer(read_only=True)
-
-    class Meta:
-        model = PatientShare
-        fields = (
-            "id",
-            "patient_id",
-            "provider_id",
-            "patient_note",
-            "ai_summary",
-            "include_patient_email",
-            "status",
-            "created_at",
-            "provider",
-            "patient",
-        )
-
-
 class PatientVitalSerializer(serializers.ModelSerializer):
     class Meta:
         model = PatientVital
@@ -331,6 +394,55 @@ class PatientVitalSerializer(serializers.ModelSerializer):
         )
 
 
+class PatientShareSerializer(serializers.ModelSerializer):
+    provider = ProviderListSerializer(read_only=True)
+    patient = PatientSerializer(read_only=True)
+    vital = PatientVitalSerializer(read_only=True)
+
+    class Meta:
+        model = PatientShare
+        fields = (
+            "id",
+            "patient_id",
+            "provider_id",
+            "patient_note",
+            "ai_summary",
+            "include_patient_email",
+            "share_kind",
+            "triage_payload",
+            "appointment_id",
+            "vital_id",
+            "status",
+            "created_at",
+            "provider",
+            "patient",
+            "vital",
+        )
+
+
+class VisitNoteSerializer(serializers.ModelSerializer):
+    provider = ProviderListSerializer(read_only=True)
+    patient = PatientSerializer(read_only=True)
+
+    class Meta:
+        model = VisitNote
+        fields = (
+            "id",
+            "patient_id",
+            "provider_id",
+            "appointment_id",
+            "medical_record_id",
+            "subjective",
+            "objective",
+            "assessment",
+            "plan",
+            "created_at",
+            "updated_at",
+            "provider",
+            "patient",
+        )
+
+
 class PatientSubscriptionSerializer(serializers.ModelSerializer):
     plan = PlanSerializer(read_only=True)
 
@@ -341,11 +453,51 @@ class PatientSubscriptionSerializer(serializers.ModelSerializer):
             "patient_id",
             "plan_id",
             "status",
-            "stripe_customer_id",
-            "stripe_session_id",
-            "stripe_subscription_id",
+            "revenuecat_product_id",
+            "platform",
+            "will_renew",
+            "expires_at",
             "created_at",
             "plan",
+        )
+
+
+class ProviderTransactionSerializer(serializers.ModelSerializer):
+    patient_name = serializers.CharField(source="patient.name", read_only=True)
+    provider_name = serializers.CharField(source="provider.full_name", read_only=True)
+
+    class Meta:
+        model = ProviderTransaction
+        fields = (
+            "id",
+            "appointment_id",
+            "patient_id",
+            "provider_id",
+            "patient_name",
+            "provider_name",
+            "amount",
+            "platform_commission_percent",
+            "platform_fee",
+            "provider_payout",
+            "status",
+            "notes",
+            "created_at",
+            "completed_at",
+        )
+
+
+class ProviderPayoutSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProviderPayout
+        fields = (
+            "id",
+            "provider_id",
+            "amount",
+            "status",
+            "stripe_transfer_id",
+            "notes",
+            "requested_at",
+            "paid_at",
         )
 
     def get_file_url(self, obj):

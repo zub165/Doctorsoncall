@@ -1,23 +1,38 @@
 /// API base URLs (must end with `api/`).
 ///
-/// This app intentionally uses **two** backends:
-/// - **EMR (Django)**: auth, appointments, records, settings, sync
-/// - **Maps / ER time (legacy)**: hospitals + map/wait-time endpoints
+/// ## Hospitals tab — two APIs (do not mix)
+///
+/// | App area | Base URL | Auth |
+/// |----------|----------|------|
+/// | Hospitals / ER search / wait times | `https://api.mywaitime.com/api/` | None for read APIs |
+/// | Login, appointments, billing, records | `https://api.docsoncalls.com/api/` | `Authorization: Token …` |
+///
+/// Production: never use `:3015`, `127.0.0.1`, or host-only URLs in release builds.
+/// No `MYWAITIME_API_KEY` in the client. TomTom tiles/geocode go through `/api/tomtom/*` on EMR.
+///
+/// See **`docs/HOSPITALS_TAB_FRONTEND.md`** for full copy/paste spec.
 ///
 /// ## 1 — Base URL (config)
-/// - **`EMR_API_BASE_URL = https://api.docsoncalls.com/api/`**
-/// - **`MAPS_API_BASE_URL = https://api.mywaitime.com/api/`**
+/// - **`EMR_API_BASE_URL = https://api.docsoncalls.com/api/`** (GoDaddy production)
+/// - **`MAPS_API_BASE_URL = https://api.mywaitime.com/api/`** (Hospitals live search first)
 ///
-/// Use **`https://host/api/`** when nginx terminates TLS on **443** (no `:3015` in the URL).
-/// Only append **`:3015`** if clients truly connect to that port on the public host.
+/// ### GoDaddy VPS (gunicorn :8012 behind nginx)
+/// - **Phones / TestFlight / Play Store** must use **`https://api.docsoncalls.com/api/`** only.
+/// - Nginx on **443** proxies to **`127.0.0.1:8012`**; port **8012 is not open** to the public internet.
+/// - Do **not** set `http://YOUR_VPS_IP:8012/api/` on mobile — that causes **“Sign-in failed (network)”**.
+///
+/// Use **`https://host/api/`** when nginx terminates TLS on **443** (never put `:8012` in the app URL).
 ///
 /// Server remains canonical: **`GET …/api/schema/`** or **`GET …/api/docs/`** (your deployment).
 /// Full index also lives in repo **`FRONTEND_API_DOCUMENTATION.md`** §13.
 ///
 /// ## Examples
 /// - **Local EMR (iOS Simulator):** `--dart-define=EMR_API_BASE_URL=http://127.0.0.1:8012/api/`
-///   Or run: `scripts/flutter_run_ios_simulator_local_api.sh` (default port **8012**).
-/// - **Maps stays public:** (no override needed) `https://api.mywaitime.com/api/`
+///   Or run: `scripts/flutter_run_ios_simulator_local_api.sh` (EMR **8012**, maps **3015**).
+/// - **Local maps (Mac):** `MAPS_API_BASE_URL=http://127.0.0.1:3015/api/` and set Django
+///   `MYWAITIME_UPSTREAM_API_BASE=http://127.0.0.1:3015/api/` so `GET …/hospitals/search/` proxies correctly.
+/// - **Production / TestFlight:** `./scripts/flutter_run_production_api.sh` sets EMR only;
+///   maps default `https://api.mywaitime.com/api/` (override with `FLUTTER_MAPS_API_BASE_URL` if needed).
 /// - **Android emulator → Mac:** `http://10.0.2.2:PORT/api/`
 ///
 /// ## 2 — Headers (see [ApiHeaders])
@@ -60,6 +75,7 @@ class ApiConfig {
     'VIDEO_MEET_HOST',
     defaultValue: 'https://meet.jit.si/',
   );
+
 }
 
 /// Standard header values for the Django REST JSON API (single source of truth: `GET …/api/schema/`).

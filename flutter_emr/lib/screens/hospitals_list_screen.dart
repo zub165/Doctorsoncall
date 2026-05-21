@@ -1,12 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../config/api_config.dart';
 import '../models/hospital.dart';
 import '../services/catalog_api.dart';
 import '../services/emergency_api_client.dart';
 import '../theme/app_theme.dart';
+import '../utils/distance_format.dart';
 import '../widgets/api_access_placeholder.dart';
 import 'hospital_detail_screen.dart';
 
@@ -44,34 +48,160 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
     _future = _loadHospitals();
   }
 
+  /// Bay Area default when simulator GPS is slow/denied (matches demo catalog).
+  static const _fallbackLat = 37.3327;
+  static const _fallbackLon = -122.0312;
+
   Future<HospitalsListResult> _loadHospitals() async {
     final pos = await _tryCurrentPosition();
+    var usedFallback = false;
     if (pos != null) {
       _geoLat = pos.latitude;
       _geoLon = pos.longitude;
-      if (mounted) {
-        setState(() {
-          _userLatLng = LatLng(pos.latitude, pos.longitude);
-        });
-      }
     } else {
-      _geoLat = null;
-      _geoLon = null;
+      _geoLat = _fallbackLat;
+      _geoLon = _fallbackLon;
+      usedFallback = true;
+    }
+    if (mounted) {
+      setState(() {
+        _userLatLng = LatLng(_geoLat!, _geoLon!);
+      });
     }
 
-    // Prefer Django EMR on 8012 (same host as auth, appointments, billing).
-    final emr = await _emrApi.loadHospitalsList(lat: _geoLat, lon: _geoLon);
-    if (emr.hospitals.isNotEmpty) return emr;
-    if (emr.hasError && emr.errorMessage != null) {
-      // Still try maps if EMR failed hard.
-    } else if (!emr.hasError) {
-      return emr;
+    // Catalog tab: EMR DB only.
+    if (_listSource == 0) {
+      final catalog = await _emrApi.loadHospitalsList(lat: _geoLat, lon: _geoLon);
+      return catalog.copyWith(
+        geoNote: catalog.geoNote ??
+            'Catalog · ${widget.apiClient.emrApiBaseUrl}GET hospitals/',
+        apiSource: widget.apiClient.emrApiBaseUrl,
+      );
     }
 
-    final maps = await _api.loadHospitalsList(lat: _geoLat, lon: _geoLon);
-    if (!maps.hasError && maps.hospitals.isNotEmpty) return maps;
-    if (maps.needsSignIn && emr.hospitals.isEmpty && !emr.hasError) return emr;
-    return emr.hasError ? emr : maps;
+    // Live tab: Finder (api.mywaitime.com) first; EMR proxy if phone cannot reach Finder.
+    final finderBase = ApiConfig.mapsApiBaseUrl;
+    final emrBase = widget.apiClient.emrApiBaseUrl;
+    final radiusM = radiusMetersForUnit(_distanceUnit);
+    const liveMaxKm = 150.0;
+    final type = _waitimeTypeForFilter();
+
+    HospitalsListResult finalize(HospitalsListResult result, {String? via}) {
+      if (result.needsSignIn) return result;
+      if (result.hasError) return result;
+      if (result.hospitals.isEmpty) return result;
+      if (!result.hospitals.hasAnyNear(_geoLat!, _geoLon!, liveMaxKm)) {
+        return result.copyWith(
+          hospitals: const [],
+          geoNote: _appendGeoNote(
+            'Hospitals returned but none within ${liveMaxKm.toStringAsFixed(0)} km.',
+            usedFallback,
+          ),
+        );
+      }
+      return result.copyWith(
+        hospitals: _applyTypeFilter(result.hospitals),
+        geoNote: _appendGeoNote(
+          via ?? result.geoNote ?? 'Live hospital search',
+          usedFallback,
+        ),
+      );
+    }
+
+    Future<HospitalsListResult> finderSearch(String searchType) =>
+        _api.loadFinderHospitalSearch(
+          lat: _geoLat!,
+          lon: _geoLon!,
+          radiusM: radiusM,
+          type: searchType,
+        );
+
+    Future<HospitalsListResult> emrProxySearch(String searchType) =>
+        _emrApi.loadWaitimeHospitalSearch(
+          lat: _geoLat!,
+          lon: _geoLon!,
+          radiusM: radiusM,
+          type: searchType,
+        );
+
+    Future<HospitalsListResult> loadWithFallback(String searchType) async {
+      var direct = await finderSearch(searchType);
+      if (!direct.hasError && direct.hospitals.isNotEmpty) {
+        return finalize(
+          direct,
+          via: '${direct.geoNote ?? 'Finder'} · $finderBase',
+        );
+      }
+
+      final proxy = await emrProxySearch(searchType);
+      if (!proxy.hasError && proxy.hospitals.isNotEmpty) {
+        return finalize(
+          proxy,
+          via:
+              '${proxy.geoNote ?? 'Live search'} · $emrBase (Finder direct unreachable)',
+        );
+      }
+
+      if (direct.hasError && proxy.hasError) {
+        return HospitalsListResult(
+          hospitals: const [],
+          upstreamDegraded: true,
+          errorMessage:
+              'Hospital search unavailable. Finder: ${direct.errorMessage}. '
+              'EMR proxy: ${proxy.errorMessage}',
+          geoNote: _appendGeoNote(
+            'Check $finderBase and $emrBase hospitals/search/. Pull to retry.',
+            usedFallback,
+          ),
+          apiSource: finderBase,
+        );
+      }
+
+      return direct.hasError ? proxy : direct;
+    }
+
+    var live = await loadWithFallback(type);
+    if (live.hospitals.isNotEmpty) return live;
+
+    if (type != 'emergency') {
+      live = await loadWithFallback('emergency');
+      if (live.hospitals.isNotEmpty) {
+        return live.copyWith(
+          geoNote: _appendGeoNote(
+            '${live.geoNote ?? 'Live search'} · showing Emergency Room near you',
+            usedFallback,
+          ),
+        );
+      }
+    }
+
+    if (live.hasError) {
+      return live.copyWith(
+        upstreamDegraded: true,
+        geoNote: _appendGeoNote(
+          live.errorMessage ?? 'Hospital search failed. Pull to refresh.',
+          usedFallback,
+        ),
+      );
+    }
+
+    return HospitalsListResult(
+      hospitals: const [],
+      geoNote: _appendGeoNote(
+        'No hospitals near you for ${_filterLabel()}. Try another category or pull to refresh.',
+        usedFallback,
+      ),
+      apiSource: finderBase,
+    );
+  }
+
+  String? _appendGeoNote(String? note, bool usedFallback) {
+    final loc = usedFallback
+        ? 'Using default map center (enable Location for near you).'
+        : null;
+    if (note == null || note.isEmpty) return loc;
+    if (loc == null) return note;
+    return '$note · $loc';
   }
 
   Future<Position?> _tryCurrentPosition() async {
@@ -89,7 +219,11 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
       return Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 10),
         ),
+      ).timeout(
+        const Duration(seconds: 12),
+        onTimeout: () => throw TimeoutException('location'),
       );
     } catch (_) {
       return null;
@@ -97,12 +231,80 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
   }
 
   String _searchQuery = '';
-  /// 0=All, 1=Emergency Room, 2=Urgent Care, 3=Hospital
+  /// 0=ER, 1=Urgent Care, 2=Hospital, 3=Walk-in clinic (no "All" — avoids unrelated POIs)
   int _filter = 0;
+  /// 0 = EMR catalog (docsoncalls DB), 1 = live MyWaitime search
+  int _listSource = 1;
+  DistanceUnit _distanceUnit = DistanceUnit.km;
+
+  String _waitimeTypeForFilter() {
+    switch (_filter) {
+      case 0:
+        return 'emergency';
+      case 1:
+        return 'urgent_care';
+      case 2:
+        return 'general';
+      case 3:
+        return 'clinic';
+      default:
+        return 'emergency';
+    }
+  }
+
+  String _filterLabel() {
+    switch (_filter) {
+      case 0:
+        return 'Emergency Room';
+      case 1:
+        return 'Urgent Care';
+      case 2:
+        return 'Hospital';
+      case 3:
+        return 'Walk-in clinic';
+      default:
+        return 'Emergency Room';
+    }
+  }
+
+  List<Hospital> _applyTypeFilter(List<Hospital> rows) {
+    bool match(String facilityType, String name) {
+      final blob = '${facilityType.toLowerCase()} ${name.toLowerCase()}';
+      switch (_filter) {
+        case 0:
+          return blob.contains('emergency') || blob.contains(' er');
+        case 1:
+          return blob.contains('urgent');
+        case 2:
+          if (blob.contains('pharmacy') ||
+              blob.contains('walgreens') ||
+              blob.contains('cvs') ||
+              blob.contains('retail')) {
+            return false;
+          }
+          return blob.contains('hospital') && !blob.contains('urgent');
+        case 3:
+          return blob.contains('clinic') || blob.contains('walk');
+        default:
+          return blob.contains('emergency') || blob.contains(' er');
+      }
+    }
+
+    return rows.where((h) => match(h.facilityType, h.name)).toList();
+  }
 
   void _reload() {
     setState(() {
       _future = _loadHospitals();
+    });
+  }
+
+  void _setFilter(int value) {
+    setState(() {
+      _filter = value;
+      if (_listSource == 1 && _geoLat != null) {
+        _future = _loadHospitals();
+      }
     });
   }
 
@@ -129,34 +331,80 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
           ),
         ),
         Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: SegmentedButton<int>(
+                  segments: const [
+                    ButtonSegment(
+                      value: 1,
+                      label: Text('Live search'),
+                      icon: Icon(Icons.radar, size: 18),
+                    ),
+                    ButtonSegment(
+                      value: 0,
+                      label: Text('Catalog'),
+                      icon: Icon(Icons.storage_outlined, size: 18),
+                    ),
+                  ],
+                  selected: {_listSource},
+                  onSelectionChanged: (s) {
+                    if (s.isEmpty) return;
+                    setState(() {
+                      _listSource = s.first;
+                      _future = _loadHospitals();
+                    });
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              SegmentedButton<DistanceUnit>(
+                segments: const [
+                  ButtonSegment(value: DistanceUnit.km, label: Text('km')),
+                  ButtonSegment(value: DistanceUnit.miles, label: Text('mi')),
+                ],
+                selected: {_distanceUnit},
+                onSelectionChanged: (s) {
+                  if (s.isEmpty) return;
+                  setState(() {
+                    _distanceUnit = s.first;
+                    if (_listSource == 1) _future = _loadHospitals();
+                  });
+                },
+              ),
+            ],
+          ),
+        ),
+        Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
               _choiceChip(
-                label: 'All',
-                selected: _filter == 0,
-                icon: Icons.layers_outlined,
-                onSelected: () => setState(() => _filter = 0),
-              ),
-              _choiceChip(
                 label: 'Emergency Room',
-                selected: _filter == 1,
+                selected: _filter == 0,
                 icon: Icons.warning_amber_rounded,
-                onSelected: () => setState(() => _filter = 1),
+                onSelected: () => _setFilter(0),
               ),
               _choiceChip(
                 label: 'Urgent Care',
-                selected: _filter == 2,
+                selected: _filter == 1,
                 icon: Icons.local_hospital_outlined,
-                onSelected: () => setState(() => _filter = 2),
+                onSelected: () => _setFilter(1),
               ),
               _choiceChip(
                 label: 'Hospital',
-                selected: _filter == 3,
+                selected: _filter == 2,
                 icon: Icons.local_hospital_rounded,
-                onSelected: () => setState(() => _filter = 3),
+                onSelected: () => _setFilter(2),
+              ),
+              _choiceChip(
+                label: 'Walk-in clinic',
+                selected: _filter == 3,
+                icon: Icons.medical_information_outlined,
+                onSelected: () => _setFilter(3),
               ),
             ],
           ),
@@ -223,9 +471,12 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
                 }
                 return _HospitalsListBody(
                   theme: theme,
+                  apiClient: widget.apiClient,
                   result: result,
                   filter: _filter,
                   searchQuery: _searchQuery,
+                  distanceUnit: _distanceUnit,
+                  listSource: _listSource,
                   userLocation: _userLatLng,
                   queryLat: _geoLat,
                   queryLon: _geoLon,
@@ -260,9 +511,12 @@ class _HospitalsListScreenState extends State<HospitalsListScreen> {
 class _HospitalsListBody extends StatelessWidget {
   const _HospitalsListBody({
     required this.theme,
+    required this.apiClient,
     required this.result,
     required this.filter,
     required this.searchQuery,
+    required this.distanceUnit,
+    required this.listSource,
     required this.userLocation,
     this.queryLat,
     this.queryLon,
@@ -271,9 +525,12 @@ class _HospitalsListBody extends StatelessWidget {
   });
 
   final ThemeData theme;
+  final EmergencyApiClient apiClient;
   final HospitalsListResult result;
   final int filter;
   final String searchQuery;
+  final DistanceUnit distanceUnit;
+  final int listSource;
   final LatLng? userLocation;
   final double? queryLat;
   final double? queryLon;
@@ -282,18 +539,29 @@ class _HospitalsListBody extends StatelessWidget {
 
   static bool _matchesFacilityFilter(Hospital h, int filter) {
     final t = h.facilityType.toLowerCase().trim();
-    if (t.isEmpty) return filter == 0;
+    final name = h.name.toLowerCase();
+    final blob = '$t $name';
+    if (t.isEmpty && name.isEmpty) return false;
     switch (filter) {
+      case 0:
+        return blob.contains('emergency') || blob.contains(' er');
       case 1:
-        return t.contains('emergency') || t == 'er';
+        return blob.contains('urgent');
       case 2:
-        return t.contains('urgent');
+        if (blob.contains('pharmacy') ||
+            blob.contains('walgreens') ||
+            blob.contains('cvs') ||
+            blob.contains('retail')) {
+          return false;
+        }
+        return blob.contains('hospital') &&
+            !blob.contains('urgent') &&
+            !blob.contains('walk');
       case 3:
-        return t.contains('hospital') &&
-            !t.contains('emergency') &&
-            !t.contains('urgent');
+        return blob.contains('walk') ||
+            (blob.contains('clinic') && !blob.contains('urgent'));
       default:
-        return true;
+        return blob.contains('emergency') || blob.contains(' er');
     }
   }
 
@@ -301,9 +569,7 @@ class _HospitalsListBody extends StatelessWidget {
   Widget build(BuildContext context) {
     var rows = result.hospitals;
 
-    if (filter != 0) {
-      rows = rows.where((h) => _matchesFacilityFilter(h, filter)).toList();
-    }
+    rows = rows.where((h) => _matchesFacilityFilter(h, filter)).toList();
 
     if (searchQuery.isNotEmpty) {
       rows = rows.where((h) {
@@ -316,6 +582,14 @@ class _HospitalsListBody extends StatelessWidget {
 
     final openCount = rows.where((h) => h.isOpen).length;
     final geoBanner = result.geoNote;
+    final degraded = result.upstreamDegraded;
+    final bannerColor =
+        degraded ? Colors.orange.shade50 : Colors.amber.shade50;
+    final bannerIcon = degraded
+        ? Icons.cloud_off_rounded
+        : Icons.info_outline_rounded;
+    final bannerIconColor =
+        degraded ? Colors.orange.shade900 : Colors.amber.shade900;
 
     if (rows.isEmpty) {
       return ListView(
@@ -326,14 +600,14 @@ class _HospitalsListBody extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: Material(
-                color: Colors.amber.shade50,
+                color: bannerColor,
                 borderRadius: BorderRadius.circular(12),
                 child: Padding(
                   padding: const EdgeInsets.all(12),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.info_outline_rounded, color: Colors.amber.shade900),
+                      Icon(bannerIcon, color: bannerIconColor),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
@@ -350,37 +624,44 @@ class _HospitalsListBody extends StatelessWidget {
                 ),
               ),
             ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            child: Text(
+              'No hospitals match',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              result.hospitals.isEmpty
+                  ? 'Try Catalog tab, pull to refresh, or enable Location in Settings.'
+                  : 'Try a different filter or search.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
           _HospitalMapPreview(
+            apiClient: apiClient,
             hospitals: result.hospitals,
             userLocation: userLocation,
             queryLat: queryLat,
             queryLon: queryLon,
+            compact: true,
           ),
-          SizedBox(height: MediaQuery.of(context).size.height * 0.12),
+          const SizedBox(height: 16),
           Icon(
             Icons.local_hospital_outlined,
-            size: 72,
+            size: 56,
             color: Colors.grey.shade400,
           ),
-          const SizedBox(height: 16),
-          Text(
-            'No hospitals match',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
           const SizedBox(height: 8),
-          Text(
-            result.hospitals.isEmpty
-                ? 'The list is empty or your filters excluded everything.'
-                : 'Try a different search.',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: Colors.grey.shade600,
-            ),
-          ),
-          const SizedBox(height: 16),
           Center(
             child: OutlinedButton.icon(
               onPressed: onReload,
@@ -400,14 +681,14 @@ class _HospitalsListBody extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
             child: Material(
-              color: Colors.amber.shade50,
+              color: bannerColor,
               borderRadius: BorderRadius.circular(12),
               child: Padding(
                 padding: const EdgeInsets.all(12),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.info_outline_rounded, color: Colors.amber.shade900),
+                    Icon(bannerIcon, color: bannerIconColor),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
@@ -425,6 +706,7 @@ class _HospitalsListBody extends StatelessWidget {
             ),
           ),
         _HospitalMapPreview(
+          apiClient: apiClient,
           hospitals: rows,
           userLocation: userLocation,
           queryLat: queryLat,
@@ -474,10 +756,11 @@ class _HospitalsListBody extends StatelessWidget {
           ),
         ),
         for (final h in rows)
-          _HospitalCard(
-            hospital: h,
-            onTap: () => onTapHospital(h),
-          ),
+                    _HospitalCard(
+                      hospital: h,
+                      distanceUnit: distanceUnit,
+                      onTap: () => onTapHospital(h),
+                    ),
       ],
     );
   }
@@ -518,20 +801,23 @@ Widget _choiceChip({
   );
 }
 
-/// OpenStreetMap tiles + pins using lat/lng from [CatalogApi.loadHospitalsList].
-/// Also shows device GPS when granted, or [userLocation] from list/search context.
+/// TomTom tiles via `GET …/api/tomtom/tiles/{z}/{x}/{y}.png` (nginx → Django), else OSM fallback.
 class _HospitalMapPreview extends StatefulWidget {
   const _HospitalMapPreview({
+    required this.apiClient,
     required this.hospitals,
     this.userLocation,
     this.queryLat,
     this.queryLon,
+    this.compact = false,
   });
 
+  final EmergencyApiClient apiClient;
   final List<Hospital> hospitals;
   final LatLng? userLocation;
   final double? queryLat;
   final double? queryLon;
+  final bool compact;
 
   @override
   State<_HospitalMapPreview> createState() => _HospitalMapPreviewState();
@@ -541,22 +827,94 @@ class _HospitalMapPreviewState extends State<_HospitalMapPreview> {
   final MapController _mapController = MapController();
   LatLng? _userLocation;
   bool _locAttempted = false;
+  String? _tileUrlTemplate;
+  bool _useTomTom = false;
+  String? _lastMapFitKey;
+
+  static const _osmTiles =
+      'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMapConfig();
+  }
+
+  Future<void> _loadMapConfig() async {
+    try {
+      final cfg = await CatalogApi(widget.apiClient).fetchMapConfig();
+      final configured = cfg['tomtom_configured'] == true;
+      final rel = (cfg['tomtom_tile_url'] ?? '').toString().trim();
+      if (!configured || rel.isEmpty) return;
+      final base = widget.apiClient.emrApiBaseUrl;
+      final template = '$base$rel';
+      if (!mounted) return;
+      setState(() {
+        _tileUrlTemplate = template;
+        _useTomTom = true;
+      });
+    } catch (_) {
+      // OSM fallback remains.
+    }
+  }
 
   static List<Hospital> _withCoords(List<Hospital> hs) => hs
       .where((h) => h.latitude.abs() > 1e-6 || h.longitude.abs() > 1e-6)
       .toList();
 
-  /// Prefer the device location so the map follows you (e.g. Tampa); else centroid of pins.
+  List<Hospital> _pinsNearQuery(List<Hospital> hs) {
+    final lat = widget.queryLat;
+    final lon = widget.queryLon;
+    if (lat == null || lon == null) return _withCoords(hs);
+    return hs.nearLocation(lat, lon, 120);
+  }
+
+  void _scheduleMapFit(List<Hospital> pts, LatLng? user) {
+    final key =
+        '${pts.length}|${pts.map((h) => h.id).join(',')}|${user?.latitude},${user?.longitude}';
+    if (key == _lastMapFitKey) return;
+    _lastMapFitKey = key;
+    _fitMapToPins(pts, user);
+  }
+
+  void _fitMapToPins(List<Hospital> pts, LatLng? user) {
+    if (pts.isEmpty && user == null) return;
+    final points = <LatLng>[
+      if (user != null) user,
+      for (final h in pts) LatLng(h.latitude, h.longitude),
+    ];
+    if (points.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        if (points.length == 1) {
+          _mapController.move(points.first, 12);
+          return;
+        }
+        final bounds = LatLngBounds.fromPoints(points);
+        _mapController.fitCamera(
+          CameraFit.bounds(
+            bounds: bounds,
+            padding: const EdgeInsets.all(48),
+          ),
+        );
+      } catch (_) {}
+    });
+  }
+
+  /// Prefer centroid of nearby pins; include user in fit, not only as center.
   static LatLng _mapCenter(List<Hospital> pts, LatLng? user) {
-    if (user != null) return user;
-    if (pts.isEmpty) return const LatLng(27.9506, -82.4572);
-    var la = 0.0;
-    var ln = 0.0;
-    for (final h in pts) {
-      la += h.latitude;
-      ln += h.longitude;
+    if (pts.isNotEmpty) {
+      var la = 0.0;
+      var ln = 0.0;
+      for (final h in pts) {
+        la += h.latitude;
+        ln += h.longitude;
+      }
+      return LatLng(la / pts.length, ln / pts.length);
     }
-    return LatLng(la / pts.length, ln / pts.length);
+    if (user != null) return user;
+    return const LatLng(27.9506, -82.4572);
   }
 
   @override
@@ -611,12 +969,36 @@ class _HospitalMapPreviewState extends State<_HospitalMapPreview> {
     _mapController.move(p, 13);
   }
 
+  void _zoomIn() {
+    final z = _mapController.camera.zoom;
+    _mapController.move(_mapController.camera.center, (z + 1).clamp(3, 18));
+  }
+
+  void _zoomOut() {
+    final z = _mapController.camera.zoom;
+    _mapController.move(_mapController.camera.center, (z - 1).clamp(3, 18));
+  }
+
+  Widget _mapZoomButton(IconData icon, VoidCallback onPressed) {
+    return Material(
+      color: Colors.white.withValues(alpha: 0.92),
+      shape: const CircleBorder(),
+      child: IconButton(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 22),
+        color: AppColors.primary,
+        visualDensity: VisualDensity.compact,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final pts = _withCoords(widget.hospitals);
+    final pts = _pinsNearQuery(widget.hospitals);
     final effectiveUser = _userLocation ?? widget.userLocation;
     final center = _mapCenter(pts, effectiveUser);
     final showMap = pts.isNotEmpty || effectiveUser != null;
+    _scheduleMapFit(pts, effectiveUser);
 
     if (!showMap) {
       return const Padding(
@@ -627,16 +1009,17 @@ class _HospitalMapPreviewState extends State<_HospitalMapPreview> {
 
     final lat = widget.queryLat ?? effectiveUser?.latitude;
     final lon = widget.queryLon ?? effectiveUser?.longitude;
+    final mapCopy = _useTomTom ? '© TomTom' : '© OpenStreetMap';
     final caption = lat != null && lon != null
-        ? '© OSM · Near you · GET /api/hospitals/?lat=${lat.toStringAsFixed(4)}&lon=${lon.toStringAsFixed(4)}'
-        : '© OpenStreetMap contributors · ${pts.length} location${pts.length == 1 ? '' : 's'} on map';
+        ? '$mapCopy · Pinch or +/- to zoom · Near you'
+        : '$mapCopy · ${pts.length} location${pts.length == 1 ? '' : 's'} on map';
 
     return Padding(
       padding: const EdgeInsets.only(top: 6, bottom: 6),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(18),
         child: SizedBox(
-          height: 220,
+          height: widget.compact ? 160 : 260,
           child: Stack(
             fit: StackFit.expand,
             children: [
@@ -652,9 +1035,8 @@ class _HospitalMapPreviewState extends State<_HospitalMapPreview> {
                 ),
                 children: [
                   TileLayer(
-                    urlTemplate:
-                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                    userAgentPackageName: 'com.emergencytime.app.emergency_time',
+                    urlTemplate: _tileUrlTemplate ?? _osmTiles,
+                    userAgentPackageName: 'com.doctoroncall.emr',
                   ),
                   MarkerLayer(
                     markers: [
@@ -712,6 +1094,17 @@ class _HospitalMapPreviewState extends State<_HospitalMapPreview> {
                     icon: const Icon(Icons.my_location_rounded),
                     color: AppColors.primary,
                   ),
+                ),
+              ),
+              Positioned(
+                right: 10,
+                top: 10,
+                child: Column(
+                  children: [
+                    _mapZoomButton(Icons.add, _zoomIn),
+                    const SizedBox(height: 8),
+                    _mapZoomButton(Icons.remove, _zoomOut),
+                  ],
                 ),
               ),
               Positioned(
@@ -818,9 +1211,14 @@ class _MapPlaceholder extends StatelessWidget {
 }
 
 class _HospitalCard extends StatelessWidget {
-  const _HospitalCard({required this.hospital, required this.onTap});
+  const _HospitalCard({
+    required this.hospital,
+    required this.distanceUnit,
+    required this.onTap,
+  });
 
   final Hospital hospital;
+  final DistanceUnit distanceUnit;
   final VoidCallback onTap;
 
   @override
@@ -896,7 +1294,7 @@ class _HospitalCard extends StatelessWidget {
                         if (hospital.distanceKm > 0)
                           _chip(
                             Icons.social_distance_rounded,
-                            '${hospital.distanceKm.toStringAsFixed(hospital.distanceKm < 10 ? 1 : 0)} km',
+                            formatDistanceKm(hospital.distanceKm, distanceUnit),
                             Colors.blue.shade700,
                           ),
                         if (hospital.waitTimeMinutes > 0)

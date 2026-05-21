@@ -21,6 +21,7 @@ class _ProviderApplyScreenState extends State<ProviderApplyScreen> {
   final _qualifications = TextEditingController();
   final _bio = TextEditingController();
   String _gender = 'male';
+  bool _volunteerOnlineVisits = false;
   bool _isLoading = false;
   int? _selectedSpecialityId;
   late final Future<List<Map<String, dynamic>>> _specialitiesFuture = _loadSpecialities();
@@ -74,6 +75,7 @@ class _ProviderApplyScreenState extends State<ProviderApplyScreen> {
           licenseNumber: _license.text.trim(),
           qualifications: _qualifications.text.trim(),
           bio: _bio.text.trim(),
+          volunteerOnlineVisits: _volunteerOnlineVisits,
         )
         .then((_) {
           if (!mounted) return;
@@ -97,7 +99,9 @@ class _ProviderApplyScreenState extends State<ProviderApplyScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
+    // TextField/DropdownButtonFormField require Material (Scaffold or Card ancestor).
+    return Scaffold(
+      body: ListView(
       padding: const EdgeInsets.all(16),
       children: [
         // Header
@@ -124,11 +128,65 @@ class _ProviderApplyScreenState extends State<ProviderApplyScreen> {
               ),
               const SizedBox(height: 4),
               Text(
-                'Join our network of healthcare professionals',
+                'Join Docs On Call — reach patients, grow your practice online',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.white70),
                 textAlign: TextAlign.center,
               ),
             ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Card(
+          color: Colors.teal.shade50,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.volunteer_activism, color: Colors.teal.shade800),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Why join our platform?',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: Colors.teal.shade900,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '• Listed in Discovery so patients can find and book you\n'
+                  '• Video telehealth from anywhere — flexible schedule\n'
+                  '• Paid consultations via secure billing; platform support\n'
+                  '• Optional volunteer online visits to serve your community',
+                  style: TextStyle(color: Colors.teal.shade900, height: 1.4, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Card(
+          color: Colors.amber.shade50,
+          child: SwitchListTile(
+            value: _volunteerOnlineVisits,
+            onChanged: (v) => setState(() => _volunteerOnlineVisits = v),
+            title: Text(
+              'Volunteer online visits',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: Colors.amber.shade900,
+              ),
+            ),
+            subtitle: Text(
+              'Offer some telehealth visits at no charge. Our team may feature '
+              'volunteer providers to patients who need access.',
+              style: TextStyle(color: Colors.amber.shade900, fontSize: 12, height: 1.3),
+            ),
+            secondary: Icon(Icons.favorite_outline, color: Colors.amber.shade800),
           ),
         ),
         const SizedBox(height: 24),
@@ -337,6 +395,7 @@ class _ProviderApplyScreenState extends State<ProviderApplyScreen> {
           ),
         ),
       ],
+      ),
     );
   }
 }

@@ -116,7 +116,42 @@ class AiAssistantMessages extends Table {
   ],
 )
 class OfflineDb extends _$OfflineDb {
-  OfflineDb() : super(_openConnection());
+  OfflineDb._internal() : super(_openConnection());
+
+  /// One app-wide database. Multiple [OfflineDb] instances fight over the same
+  /// drift isolate and cause "connection was closed" after hot restart.
+  factory OfflineDb() => instance;
+
+  static OfflineDb? _instance;
+
+  static OfflineDb get instance {
+    _instance ??= OfflineDb._internal();
+    return _instance!;
+  }
+
+  /// Returns a live connection, recreating the DB if the drift isolate died.
+  static Future<OfflineDb> instanceOrReset() async {
+    final current = _instance;
+    if (current != null) {
+      try {
+        await current.customSelect('SELECT 1').getSingle();
+        return current;
+      } catch (_) {
+        await closeShared();
+      }
+    }
+    return instance;
+  }
+
+  static Future<void> closeShared() async {
+    final db = _instance;
+    _instance = null;
+    if (db != null) {
+      try {
+        await db.close();
+      } catch (_) {}
+    }
+  }
 
   @override
   int get schemaVersion => 2;

@@ -124,10 +124,7 @@ class Hospital {
       rating: rating,
       photoUrl: photoUrl,
       waitTimeMinutes: waitInt,
-      facilityType:
-          root['facilityType']?.toString() ??
-          root['facility_type']?.toString() ??
-          'Hospital',
+      facilityType: _facilityTypeLabel(root),
       aiRating: aiRating,
       travelTimeMinutes: _intOrNull(
         root['travelTimeMinutes'] ?? root['travel_time_minutes'],
@@ -142,6 +139,23 @@ class Hospital {
       email: root['email']?.toString(),
       description: root['description']?.toString(),
     );
+  }
+
+  static String _facilityTypeLabel(Map<String, dynamic> root) {
+    final raw = (root['facilityType'] ??
+            root['facility_type'] ??
+            root['hospital_type'] ??
+            root['type'] ??
+            'Hospital')
+        .toString()
+        .trim();
+    if (raw.isEmpty) return 'Hospital';
+    final lower = raw.toLowerCase();
+    if (lower == 'er' || lower == 'emergency') return 'Emergency Room';
+    if (lower.contains('urgent')) return 'Urgent Care';
+    if (lower.contains('walk') || lower == 'clinic') return 'Walk-in Clinic';
+    if (lower == 'general') return 'Hospital';
+    return raw;
   }
 
   static Map<String, dynamic> _unwrap(Map<String, dynamic> json) {
@@ -183,12 +197,22 @@ class Hospital {
     return double.tryParse(a?.toString() ?? '');
   }
 
-  /// Interprets distance: explicit km fields, else heuristic meters → km.
+  /// Interprets distance: km fields, miles, or meters from MyWaitime.
   static double _distanceKm(Map<String, dynamic> j) {
     if (j['distance_km'] != null || j['distance_in_km'] != null) {
       final v = j['distance_km'] ?? j['distance_in_km'];
       final n = v is num ? v.toDouble() : double.tryParse(v.toString()) ?? 0;
       return n;
+    }
+    final miles = j['distance_miles'];
+    if (miles != null) {
+      final m = miles is num ? miles.toDouble() : double.tryParse(miles.toString()) ?? 0;
+      if (m > 0) return m * 1.60934;
+    }
+    final meters = j['distance_m'];
+    if (meters != null) {
+      final m = meters is num ? meters.toDouble() : double.tryParse(meters.toString()) ?? 0;
+      if (m > 0) return m / 1000;
     }
     final raw = j['distance'];
     if (raw == null) return 0;
@@ -196,6 +220,7 @@ class Hospital {
         ? raw.toDouble()
         : double.tryParse(raw.toString()) ?? 0;
     if (v > 200) return v * 0.001;
+    if (v > 0 && v < 50) return v * 1.60934;
     return v;
   }
 

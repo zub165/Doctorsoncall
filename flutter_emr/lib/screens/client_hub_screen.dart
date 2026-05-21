@@ -1,13 +1,20 @@
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../config/api_paths.dart';
 import '../services/emergency_api_client.dart';
 import '../services/emr_features_api.dart';
 import '../services/offline_db.dart';
+import '../services/store_purchase_service.dart';
 import '../services/user_api.dart';
 import '../theme/app_theme.dart';
+import '../models/billing.dart';
 import '../utils/api_envelope.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'patient_billing_screen.dart';
+import 'provider_apply_screen.dart';
 
 class ClientHubScreen extends StatelessWidget {
   const ClientHubScreen({
@@ -94,9 +101,22 @@ class ClientHubScreen extends StatelessWidget {
         _buildSectionCard(
           context,
           icon: Icons.receipt_long,
-          title: 'Billing & Invoices',
-          subtitle: 'Manage your payments',
+          title: 'Doctor bills & pay',
+          subtitle: 'Pay extra visits & doctor invoices (Stripe — not monthly plan)',
           color: const Color(0xFF9C27B0),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => PatientBillingScreen(apiClient: apiClient),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        _buildSectionCard(
+          context,
+          icon: Icons.description_outlined,
+          title: 'Legacy invoices',
+          subtitle: 'Older invoice list from EMR',
+          color: const Color(0xFF7E57C2),
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (_) => _InvoicesScreen(apiClient: apiClient),
@@ -227,7 +247,10 @@ class ClientHubScreen extends StatelessWidget {
   }
 
   Widget _buildPlanTab(BuildContext context) {
-    return _PlanTab(apiClient: apiClient);
+    return _PlanTab(
+      apiClient: apiClient,
+      onNavigateToShellTab: onNavigateToShellTab,
+    );
   }
 
   Widget _buildSectionCard(
@@ -556,18 +579,62 @@ class _InvoicesScreenState extends State<_InvoicesScreen> {
 }
 
 class _PlanTab extends StatefulWidget {
-  const _PlanTab({required this.apiClient});
+  const _PlanTab({
+    required this.apiClient,
+    this.onNavigateToShellTab,
+  });
 
   final EmergencyApiClient apiClient;
+  final ValueChanged<int>? onNavigateToShellTab;
 
   @override
   State<_PlanTab> createState() => _PlanTabState();
 }
 
+String _friendlyPlanLoadError(Object e) {
+  final msg = e.toString();
+  if (msg.contains('501')) {
+    return 'Subscription billing is not configured on the server yet. '
+        'You can still browse plans below once they load from the API.';
+  }
+  if (msg.contains('403')) {
+    return 'You do not have permission to load plans. Sign in as a patient account.';
+  }
+  return 'Could not load plans from the server. Check your connection and try again.';
+}
+
+String _friendlyBillingError(Object e) {
+  final msg = e.toString();
+  if (msg.contains('501')) {
+    return 'Stripe billing is not enabled on the server. Plan list is shown; '
+        'subscribe via App Store / Google Play on mobile.';
+  }
+  return 'Could not load your current subscription status.';
+}
+
+String _planBenefitLine(String appts) {
+  final n = appts.trim().toLowerCase();
+  if (n == '1') {
+    return '1 covered visit/month · book available doctors online';
+  }
+  if (n == '3') {
+    return '3 covered visits/month · available doctors on the platform';
+  }
+  if (n == '5') {
+    return '5 covered visits/month · available doctors on the platform';
+  }
+  if (appts.isNotEmpty) {
+    return '$appts covered visits/month · available doctors online';
+  }
+  return 'Book available doctors on Docs On Call';
+}
+
 class _PlanTabState extends State<_PlanTab> {
   bool _loading = true;
   String? _error;
+  String? _billingNotice;
   Map<String, dynamic>? _active;
+  VisitAllowance? _visitAllowance;
   List<Map<String, dynamic>> _plans = const [];
   bool _busy = false;
 
@@ -579,27 +646,29 @@ class _PlanTabState extends State<_PlanTab> {
     try {
       final api = EmrFeaturesApi(widget.apiClient);
       final plansRaw = await api.plans(fixture: requestDemoSeed);
-      final billingRaw = await api.billingStatus();
-
       final plans = ApiEnvelope.coercePlanList(plansRaw);
 
       Map<String, dynamic>? active;
-      if (billingRaw is Map) {
-        final root = Map<String, dynamic>.from(billingRaw);
-        final inner =
-            root['data'] is Map ? Map<String, dynamic>.from(root['data'] as Map) : root;
-        final a = inner['active'];
-        if (a is Map) active = Map<String, dynamic>.from(a);
+      VisitAllowance? allowance;
+      String? billingWarning;
+      try {
+        final billing = await api.fetchBillingStatus();
+        active = billing.activeSubscription;
+        allowance = billing.visitAllowance;
+      } catch (e) {
+        billingWarning = _friendlyBillingError(e);
       }
 
       setState(() {
         _plans = plans;
         _active = active;
+        _visitAllowance = allowance;
+        _billingNotice = billingWarning;
         _loading = false;
       });
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        _error = _friendlyPlanLoadError(e);
         _loading = false;
       });
     }
@@ -615,32 +684,167 @@ class _PlanTabState extends State<_PlanTab> {
     _load();
   }
 
-  Future<void> _subscribe(int planId) async {
+  bool get _useStoreSubscription => StorePurchaseService.isSupported;
+
+  String get _subscribeButtonLabel {
+    if (Platform.isIOS) return 'Subscribe with App Store';
+    if (Platform.isAndroid) return 'Subscribe with Google Play';
+    return 'Subscribe in app store';
+  }
+
+  void _showPlanSnack(String message, {bool isError = true}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? null : const Color(0xFF4CAF50),
+      ),
+    );
+  }
+
+  Future<void> _restoreStorePurchases() async {
+    if (!_useStoreSubscription) {
+      _showPlanSnack('In-app purchase is only on iOS and Android.');
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      final res = await EmrFeaturesApi(widget.apiClient).billingCheckout(planId);
-      final body = res is Map ? Map<String, dynamic>.from(res) : <String, dynamic>{};
-      final inner =
-          body['data'] is Map ? Map<String, dynamic>.from(body['data'] as Map) : body;
-      final url = (inner['url'] ?? inner['checkout_url'] ?? '').toString();
-      if (url.isEmpty) {
-        throw Exception('Checkout URL missing (Stripe not configured).');
+      final api = EmrFeaturesApi(widget.apiClient);
+      final restored = await StorePurchaseService.instance.restorePurchases();
+      if (restored.isEmpty) {
+        _showPlanSnack('No purchases to restore in ${StorePurchaseService.storeName}.');
+        return;
       }
-      final uri = Uri.tryParse(url);
-      if (uri == null) throw Exception('Invalid checkout URL');
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      for (final purchase in restored) {
+        if (!purchase.success) continue;
+        final plan = _planForProductId(purchase.productId);
+        if (plan == null) continue;
+        final id = plan['id'];
+        if (id is! int) continue;
+        await api.billingVerifyStore(
+          planId: id,
+          platform: Platform.isIOS ? 'apple' : 'android',
+          productId: purchase.productId,
+          purchaseId: purchase.purchaseId,
+          verificationData: purchase.verificationData,
+          localVerificationData: purchase.localVerificationData,
+          transactionDate: purchase.transactionDate,
+        );
+      }
       if (!mounted) return;
-      setState(() => _busy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Purchases restored — plan updated'),
+          backgroundColor: Color(0xFF4CAF50),
+        ),
+      );
+      await _load();
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _error = e.toString();
-      });
+      _showPlanSnack(e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Map<String, dynamic>? _planForProductId(String productId) {
+    for (final p in _plans) {
+      if ((p['revenuecat_product_id'] ?? '').toString() == productId) {
+        return p;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _subscribe(int planId, Map<String, dynamic> planRow) async {
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final api = EmrFeaturesApi(widget.apiClient);
+
+      if (kIsWeb) {
+        final res = await api.billingCheckout(planId, platform: 'web');
+        final body = res is Map ? Map<String, dynamic>.from(res) : <String, dynamic>{};
+        final inner = body['data'] is Map
+            ? Map<String, dynamic>.from(body['data'] as Map)
+            : body;
+        final url = (inner['url'] ?? inner['checkout_url'] ?? '').toString();
+        if (url.isEmpty) {
+          throw Exception('Stripe web checkout is not configured on the server.');
+        }
+        final uri = Uri.tryParse(url);
+        if (uri == null) throw Exception('Invalid checkout URL');
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        return;
+      }
+
+      if (!_useStoreSubscription) {
+        throw Exception(
+          'Monthly plans on mobile use ${StorePurchaseService.storeName} only. '
+          'Extra visits: Doctor bills (Stripe).',
+        );
+      }
+
+      final platform = Platform.isIOS ? 'apple' : 'android';
+      var productId = (planRow['revenuecat_product_id'] ?? '').toString().trim();
+      if (productId.isEmpty) {
+        final res = await api.billingCheckout(planId, platform: platform);
+        final body = res is Map ? Map<String, dynamic>.from(res) : <String, dynamic>{};
+        final inner = body['data'] is Map
+            ? Map<String, dynamic>.from(body['data'] as Map)
+            : body;
+        productId = (inner['product_id'] ?? '').toString();
+      }
+      if (productId.isEmpty) {
+        throw Exception(
+          'Plan has no store product id (doc_basic_monthly, etc.). Set in Admin → Plans.',
+        );
+      }
+
+      final purchase = await StorePurchaseService.instance.purchaseProductId(productId);
+      if (!purchase.success) {
+        throw Exception(purchase.error ?? 'Purchase failed');
+      }
+
+      await api.billingVerifyStore(
+        planId: planId,
+        platform: platform,
+        productId: purchase.productId,
+        purchaseId: purchase.purchaseId,
+        verificationData: purchase.verificationData,
+        localVerificationData: purchase.localVerificationData,
+        transactionDate: purchase.transactionDate,
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Subscribed via ${StorePurchaseService.storeName}. Plan is active.',
+          ),
+          backgroundColor: const Color(0xFF4CAF50),
+        ),
+      );
+      await _load();
+    } catch (e) {
+      if (!mounted) return;
+      _showPlanSnack(e.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  void _openExtraVisitBilling() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PatientBillingScreen(apiClient: widget.apiClient),
+      ),
+    );
   }
 
   @override
@@ -698,6 +902,32 @@ class _PlanTabState extends State<_PlanTab> {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
         children: [
+          if (_billingNotice != null)
+            Card(
+              color: Colors.orange.shade50,
+              margin: const EdgeInsets.only(bottom: 12),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.orange.shade800),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _billingNotice!,
+                        style: TextStyle(
+                          color: Colors.orange.shade900,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          if (_visitAllowance != null)
+            VisitAllowanceCard(allowance: _visitAllowance!),
           Card(
             elevation: 4,
             child: Container(
@@ -740,17 +970,114 @@ class _PlanTabState extends State<_PlanTab> {
           ),
           const SizedBox(height: 16),
           Card(
+            color: Colors.blue.shade50,
             child: Padding(
               padding: const EdgeInsets.all(14),
-              child: Text(
-                'Payments are handled securely by Stripe. Apple Pay / Google Pay will appear automatically when enabled in Stripe.',
-                style: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.w600),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.subscriptions, color: Colors.blue.shade800),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Monthly plans (3 tiers)',
+                          style: TextStyle(
+                            color: Colors.blue.shade900,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _useStoreSubscription
+                        ? 'Basic (1), Gold (3), and Premium (5) visits/month — billed through '
+                            '${StorePurchaseService.storeName} (direct, no RevenueCat). '
+                            'Extra visits use Stripe in Doctor bills.'
+                        : 'Monthly plans require iOS or Android.',
+                    style: TextStyle(color: Colors.blue.shade900, height: 1.35),
+                  ),
+                ],
               ),
             ),
           ),
+          const SizedBox(height: 12),
+          Card(
+            color: Colors.green.shade50,
+            child: ListTile(
+              leading: Icon(Icons.people_outline, color: Colors.green.shade800),
+              title: Text(
+                'Available doctors',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: Colors.green.shade900,
+                ),
+              ),
+              subtitle: Text(
+                'Browse verified providers by country and speciality in Discovery, '
+                'then book a video visit. Some doctors also offer volunteer online care.',
+                style: TextStyle(color: Colors.green.shade900, height: 1.3),
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: widget.onNavigateToShellTab == null
+                  ? null
+                  : () => widget.onNavigateToShellTab!.call(9),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            color: Colors.teal.shade50,
+            child: ListTile(
+              leading: Icon(Icons.medical_services_outlined, color: Colors.teal.shade800),
+              title: Text(
+                'Are you a doctor?',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  color: Colors.teal.shade900,
+                ),
+              ),
+              subtitle: Text(
+                'Join our platform for patient reach and paid telehealth. '
+                'You can also opt in to volunteer online visits when you apply.',
+                style: TextStyle(color: Colors.teal.shade900, height: 1.3),
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ProviderApplyScreen(apiClient: widget.apiClient),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.receipt_long, color: Color(0xFF9C27B0)),
+              title: const Text('Extra visits & doctor bills'),
+              subtitle: const Text(
+                'When your plan visits are used up, pay one-time consultation '
+                'invoices with Stripe (card) — not for monthly plans.',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _busy ? null : _openExtraVisitBilling,
+            ),
+          ),
+          if (_useStoreSubscription) ...[
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _busy ? null : _restoreStorePurchases,
+              icon: const Icon(Icons.restore),
+              label: const Text('Restore App Store / Play purchases'),
+            ),
+          ],
           const SizedBox(height: 24),
           Text(
-            'Available Plans',
+            'Subscribe (Basic · Gold · Premium)',
             style: Theme.of(context)
                 .textTheme
                 .titleMedium
@@ -837,18 +1164,49 @@ class _PlanTabState extends State<_PlanTab> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        [
-                          if (duration.isNotEmpty) duration,
-                          if (appts.isNotEmpty) '$appts appointments',
-                          if (ai.isNotEmpty) 'AI: $ai',
-                        ].join(' • '),
-                        style: TextStyle(color: Colors.grey.shade700),
+                        _planBenefitLine(appts),
+                        style: TextStyle(color: Colors.grey.shade700, height: 1.3),
                       ),
+                      if (duration.isNotEmpty || ai.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(
+                            [
+                              if (duration.isNotEmpty) duration,
+                              if (ai.isNotEmpty) 'AI: $ai',
+                            ].join(' • '),
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      if ((p['revenuecat_product_id'] ?? '').toString().isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'Store product: ${p['revenuecat_product_id']}',
+                          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       FilledButton.icon(
-                        onPressed: (_busy || id == null) ? null : () => _subscribe(id),
-                        icon: const Icon(Icons.lock_outline),
-                        label: Text(_busy ? 'Please wait…' : 'Subscribe'),
+                        onPressed: (_busy || id == null || !_useStoreSubscription)
+                            ? null
+                            : () => _subscribe(id, p),
+                        icon: Icon(
+                          Platform.isIOS
+                              ? Icons.apple
+                              : Platform.isAndroid
+                                  ? Icons.shop
+                                  : Icons.storefront,
+                        ),
+                        label: Text(
+                          _busy
+                              ? 'Please wait…'
+                              : !_useStoreSubscription
+                                  ? 'App Store / Play only on mobile'
+                                  : _subscribeButtonLabel,
+                        ),
                       ),
                     ],
                   ),
@@ -913,7 +1271,22 @@ class _HealthOverviewScreenState extends State<_HealthOverviewScreen> {
       }
       if (v is Map && v['results'] is List) vitals = (v['results'] as List).length;
 
-      final preventive = await _computePreventiveCareStatus();
+      var preventive = (
+        completedCount: 0,
+        pendingCount: 4,
+        completedItems: <String>[],
+        pendingItems: const [
+          'CBC (Complete Blood Count)',
+          'CMP (Comprehensive Metabolic Panel)',
+          'Lipid panel (Cholesterol)',
+          'HbA1c (Diabetes screening)',
+        ],
+      );
+      try {
+        preventive = await _computePreventiveCareStatus();
+      } catch (_) {
+        // Local lab cache unavailable (e.g. drift isolate closed after hot restart).
+      }
 
       setState(() {
         _apptCount = appts;
@@ -948,7 +1321,8 @@ class _HealthOverviewScreenState extends State<_HealthOverviewScreen> {
       'HbA1c (Diabetes screening)': ['a1c', 'hba1c', 'hemoglobin a1c'],
     };
 
-    final labRows = await (widget.offlineDb.select(widget.offlineDb.localLabResults)
+    final db = await OfflineDb.instanceOrReset();
+    final labRows = await (db.select(db.localLabResults)
           ..where((t) => t.isDeleted.equals(false)))
         .get();
 

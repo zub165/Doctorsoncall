@@ -1047,16 +1047,8 @@ class _DoctorSoapNoteScreenState extends State<DoctorSoapNoteScreen> {
   }
 }
 
-String _coerceSoapSection(dynamic v) {
-  if (v == null) return '';
-  if (v is List) {
-    return v
-        .map((e) => e.toString())
-        .where((s) => s.trim().isNotEmpty)
-        .join('\n');
-  }
-  return v.toString().trim();
-}
+String _coerceSoapSection(dynamic v) =>
+    MedicalRecordsApi.soapSectionText(v);
 
 String _formatDoctorStructured(Map<String, dynamic> m) {
   final sb = StringBuffer();

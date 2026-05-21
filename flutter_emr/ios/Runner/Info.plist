@@ -13,7 +13,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>emergency_time</string>
+	<string>Doctersoncall</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -53,12 +53,14 @@
 	<key>NSCameraUsageDescription</key>
 	<string>This app needs camera access to capture skin/wound photos for triage.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>This app uses your location to show nearby hospitals and estimate distance.</string>
+	<string>Your location is used to show nearby hospitals on the map and sort them by distance.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Your location is used to show nearby hospitals on the map and sort them by distance. Background location is not required for normal use.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>This app uses the microphone for voice dictation when writing SOAP notes.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>This app needs photo library access to attach images to triage notes.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Your location is used to sort hospitals by distance and center the map near you.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Speech recognition is used to turn your voice into text for medical notes and the AI assistant.</string>
 </dict>
 </plist>

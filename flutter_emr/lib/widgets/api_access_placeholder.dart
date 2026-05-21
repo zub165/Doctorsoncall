@@ -43,7 +43,23 @@ class ApiAccessPlaceholder extends StatelessWidget {
       String? serverMessage;
       if (data is Map) {
         // Common shapes across our backends
-        serverMessage = (data['message'] ?? data['error'] ?? data['detail'])?.toString();
+        final errs = data['errors'];
+        if (errs is Map && errs.isNotEmpty) {
+          final parts = <String>[];
+          for (final entry in errs.entries) {
+            final v = entry.value;
+            if (v is List && v.isNotEmpty) {
+              parts.add(v.first.toString());
+            } else if (v != null) {
+              parts.add(v.toString());
+            }
+          }
+          if (parts.isNotEmpty) {
+            serverMessage = parts.join(' ');
+          }
+        }
+        serverMessage ??=
+            (data['message'] ?? data['error'] ?? data['detail'])?.toString();
       } else if (data is String) {
         final raw = data.trim();
         // Never show Django HTML debug pages (500 with DEBUG=True) in the UI.

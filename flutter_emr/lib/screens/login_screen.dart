@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../models/login_portal.dart';
 import '../services/auth_api.dart';
+import '../services/health_api.dart';
 import '../services/emergency_api_client.dart';
 import '../services/offline_db.dart';
 import '../services/token_repository.dart';
@@ -35,6 +36,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   bool _loading = false;
   LoginPortal _portal = LoginPortal.patient;
+  bool _checkingApi = true;
+  bool? _apiReachable;
 
   IconData _portalIcon(LoginPortal p) => switch (p) {
         LoginPortal.patient => Icons.person_outline_rounded,
@@ -51,6 +54,20 @@ class _LoginScreenState extends State<LoginScreen> {
     _auth = AuthApi(_client);
     _db = widget.offlineDb ?? OfflineDb();
     _ownDb = widget.offlineDb == null;
+    _pingApi();
+  }
+
+  Future<void> _pingApi() async {
+    setState(() {
+      _checkingApi = true;
+      _apiReachable = null;
+    });
+    final ok = await HealthApi(_client).ping(attempts: 2);
+    if (!mounted) return;
+    setState(() {
+      _checkingApi = false;
+      _apiReachable = ok;
+    });
   }
 
   @override
@@ -77,7 +94,25 @@ class _LoginScreenState extends State<LoginScreen> {
     if (code == 403) {
       return 'This account cannot use this sign-in lane (e.g. doctor not approved yet).';
     }
-    return 'Sign-in failed (${code ?? 'network'}).';
+    if (code == null) {
+      final base = _client.emrApiBaseUrl;
+      final local = base.contains('127.0.0.1') ||
+          base.contains('localhost') ||
+          base.contains('10.0.2.2');
+      if (local) {
+        return 'Cannot reach local API ($base). '
+            'Start Django on your Mac, or run scripts/flutter_run_production_api.sh '
+            '(GoDaddy uses https://api.docsoncalls.com/api/, not :8012).';
+      }
+      if (base.contains(':8012')) {
+        return 'Wrong API URL ($base). On GoDaddy, phones must use '
+            'https://api.docsoncalls.com/api/ (nginx :443 → gunicorn :8012). '
+            'Rebuild with scripts/flutter_run_production_api.sh build';
+      }
+      return 'Cannot reach server ($base). '
+          'Check Wi‑Fi or cellular, then try again.';
+    }
+    return 'Sign-in failed (HTTP $code).';
   }
 
   Future<void> _submit() async {
@@ -86,6 +121,24 @@ class _LoginScreenState extends State<LoginScreen> {
     FocusScope.of(context).unfocus();
     try {
       await _auth.login(_email.text.trim(), _password.text, portal: _portal);
+    } on DioException catch (e) {
+      final msg = _messageFromDio(e);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Login failed: $msg')),
+      );
+      if (mounted) setState(() => _loading = false);
+      return;
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Login failed: $e')));
+      if (mounted) setState(() => _loading = false);
+      return;
+    }
+
+    try {
       final me = await UserApi(_client).fetchDoctorOnCallMe();
       final role = (me['role'] ?? '').toString();
       if (!mounted) return;
@@ -97,7 +150,13 @@ class _LoginScreenState extends State<LoginScreen> {
     } on DioException catch (e) {
       final msg = _messageFromDio(e);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Signed in, but profile could not load: $msg',
+          ),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -127,9 +186,11 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
         child: SafeArea(
-          child: Center(
+          minimum: const EdgeInsets.only(top: 8, bottom: 16),
+          child: Align(
+            alignment: Alignment.topCenter,
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.fromLTRB(24, 12, 24, 32),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 420),
                 child: Card(
@@ -199,7 +260,14 @@ class _LoginScreenState extends State<LoginScreen> {
                               height: 1.35,
                             ),
                           ),
-                          const SizedBox(height: 28),
+                          const SizedBox(height: 10),
+                          _ApiConnectionBanner(
+                            baseUrl: _client.emrApiBaseUrl,
+                            checking: _checkingApi,
+                            reachable: _apiReachable,
+                            onRetry: _pingApi,
+                          ),
+                          const SizedBox(height: 18),
                           TextFormField(
                             controller: _email,
                             decoration: InputDecoration(
@@ -487,6 +555,103 @@ class _LoginPortalTile extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Shows which API host the build uses and whether [GET health/] succeeds.
+class _ApiConnectionBanner extends StatelessWidget {
+  const _ApiConnectionBanner({
+    required this.baseUrl,
+    required this.checking,
+    required this.reachable,
+    required this.onRetry,
+  });
+
+  final String baseUrl;
+  final bool checking;
+  final bool? reachable;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    Color bg;
+    Color fg;
+    String label;
+    IconData icon;
+
+    if (checking) {
+      bg = Colors.blue.shade50;
+      fg = Colors.blue.shade900;
+      label = 'Checking server…';
+      icon = Icons.sync;
+    } else if (reachable == true) {
+      bg = Colors.green.shade50;
+      fg = Colors.green.shade900;
+      label = 'Server reachable';
+      icon = Icons.cloud_done_outlined;
+    } else {
+      bg = Colors.red.shade50;
+      fg = Colors.red.shade900;
+      label = 'Cannot reach server';
+      icon = Icons.cloud_off_outlined;
+    }
+
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 18, color: fg),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: fg,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    baseUrl,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: fg.withValues(alpha: 0.9),
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                    ),
+                  ),
+                  if (reachable == false) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      baseUrl.contains(':8012')
+                          ? 'Use https://api.docsoncalls.com/api/ — port 8012 is only on the VPS behind nginx.'
+                          : 'Tap ↻ to retry. If this persists, check Wi‑Fi/VPN or open Safari to the URL above.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: fg,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            IconButton(
+              onPressed: checking ? null : onRetry,
+              icon: Icon(Icons.refresh, size: 20, color: fg),
+              tooltip: 'Retry connection',
+              visualDensity: VisualDensity.compact,
+            ),
+          ],
         ),
       ),
     );

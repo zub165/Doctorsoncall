@@ -1,4 +1,4 @@
-# Doctor On Call (package: `emergency_time`)
+# Doctor On Call / Doctersoncall (package: `doctersoncall`, bundle `com.doctoroncall.emr`)
 
 A new Flutter project.
 

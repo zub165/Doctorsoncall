@@ -29,6 +29,7 @@ class _AdminHubScreenState extends State<AdminHubScreen>
   static const _tabs = <String>[
     'Roles',
     'Plans',
+    'Revenue',
     'Specialities',
     'Countries',
     'Providers',
@@ -39,6 +40,7 @@ class _AdminHubScreenState extends State<AdminHubScreen>
   static const _icons = [
     Icons.admin_panel_settings,
     Icons.card_membership,
+    Icons.payments,
     Icons.medical_services,
     Icons.public,
     Icons.people,
@@ -176,7 +178,7 @@ class _AdminTab extends StatelessWidget {
         title: title,
         icon: icon,
         load: () async {
-          final data = await api.plans();
+          final data = await api.plans(all: true);
           final v = (data is Map ? (data['data'] ?? data['results'] ?? data) : data);
           if (v is List) {
             return v.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
@@ -193,10 +195,16 @@ class _AdminTab extends StatelessWidget {
           _EditorField(keyName: 'price', label: 'Price'),
           _EditorField(keyName: 'number_appointments', label: 'Number of appointments'),
           _EditorField(keyName: 'ai_bot', label: 'AI bot (yes/no)'),
+          _EditorField(keyName: 'revenuecat_product_id', label: 'Store product id'),
+          _EditorField(keyName: 'revenuecat_entitlement_id', label: 'Store entitlement id'),
           _EditorField(keyName: 'discount', label: 'Discount (optional)'),
         ],
         onSave: (id, patch) => api.adminPatchPlan(id, patch),
       );
+    }
+
+    if (title == 'Revenue') {
+      return _AdminRevenueTab(api: api, icon: icon);
     }
 
     if (title == 'Countries') {
@@ -1674,11 +1682,51 @@ Future<void> _showCreateUserDialog(
     phoneC.dispose();
     return;
   }
+
+  final email = emailC.text.trim();
+  final password = passC.text;
+  if (email.isEmpty || !email.contains('@')) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid email address.')),
+      );
+    }
+    nameC.dispose();
+    emailC.dispose();
+    passC.dispose();
+    phoneC.dispose();
+    return;
+  }
+  if (password.length < 8) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password must be at least 8 characters.')),
+      );
+    }
+    nameC.dispose();
+    emailC.dispose();
+    passC.dispose();
+    phoneC.dispose();
+    return;
+  }
+  if (kind == 'doctor' && specialityId == null) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select a speciality for the provider.')),
+      );
+    }
+    nameC.dispose();
+    emailC.dispose();
+    passC.dispose();
+    phoneC.dispose();
+    return;
+  }
+
   try {
     await api.adminCreateUser(
       kind: kind,
-      email: emailC.text.trim(),
-      password: passC.text,
+      email: email,
+      password: password,
       name: nameC.text.trim(),
       specialityId: kind == 'doctor' ? specialityId : null,
       phoneNumber: phoneC.text.trim().isNotEmpty ? phoneC.text.trim() : null,
@@ -1747,8 +1795,10 @@ class _AdminRolesTab extends StatelessWidget {
             heroTag: 'admin_fab_roles',
             onPressed: () => _showCreateUserDialog(context, api: api, kind: 'admin'),
             icon: const Icon(Icons.admin_panel_settings_rounded),
-            label: const Text('Add administrator'),
+            label: const Text('Add admin account'),
             backgroundColor: const Color(0xFFD32F2F),
+            tooltip:
+                'Creates a staff login (is_staff). Does not add a row to the roles list.',
           ),
         ),
       ],
@@ -2480,6 +2530,139 @@ class _AdminApprovalsAndCrud extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _AdminRevenueTab extends StatefulWidget {
+  const _AdminRevenueTab({required this.api, required this.icon});
+
+  final EmrFeaturesApi api;
+  final IconData icon;
+
+  @override
+  State<_AdminRevenueTab> createState() => _AdminRevenueTabState();
+}
+
+class _AdminRevenueTabState extends State<_AdminRevenueTab> {
+  bool _loading = true;
+  String? _error;
+  Map<String, dynamic> _data = const {};
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final raw = await widget.api.adminBillingSummary();
+      final body = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+      final inner = body['data'] is Map
+          ? Map<String, dynamic>.from(body['data'] as Map)
+          : body;
+      setState(() {
+        _data = inner;
+        _loading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(widget.icon, size: 40, color: Colors.grey),
+            const SizedBox(height: 12),
+            Text(_error!, textAlign: TextAlign.center),
+            const SizedBox(height: 12),
+            FilledButton(onPressed: _load, child: const Text('Retry')),
+          ],
+        ),
+      );
+    }
+
+    final byPlan = _data['subscriptions_by_plan'];
+    final planLines = <String>[];
+    if (byPlan is Map) {
+      byPlan.forEach((k, v) => planLines.add('$k: $v active'));
+    }
+
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(widget.icon, color: Theme.of(context).colorScheme.primary),
+                      const SizedBox(width: 10),
+                      const Text(
+                        'Platform revenue',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _revRow('Commission rate', '${_data['commission_percent'] ?? 15}%'),
+                  _revRow('Total patient payments', '\$${_num(_data['total_volume'])}'),
+                  _revRow('Your platform fees', '\$${_num(_data['total_platform_fees'])}'),
+                  _revRow('Paid to doctors', '\$${_num(_data['total_doctor_payouts'])}'),
+                  _revRow('Pending invoices', '${_data['pending_invoices'] ?? 0}'),
+                  _revRow('Active subscriptions', '${_data['active_subscriptions'] ?? 0}'),
+                  _revRow('Doctors on Stripe Connect', '${_data['doctors_stripe_connect_ready'] ?? 0}'),
+                  if (planLines.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    const Text('Subscriptions by plan', style: TextStyle(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 6),
+                    ...planLines.map((l) => Text(l)),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static String _num(dynamic v) {
+    final n = double.tryParse('$v') ?? 0;
+    return n.toStringAsFixed(2);
+  }
+
+  Widget _revRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(child: Text(label, style: TextStyle(color: Colors.grey.shade700))),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.w800)),
+        ],
+      ),
     );
   }
 }
